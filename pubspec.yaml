@@ -32,6 +32,7 @@ dependencies:
   flutter_typeahead: ^5.2.0
   flutter:
     sdk: flutter
+  speech_to_text: ^7.0.0   
   scribble: ^0.10.0
   google_mlkit_digital_ink_recognition: ^0.14.0
 
