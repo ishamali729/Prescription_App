@@ -1,9 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/material.dart' hide Ink;
 import 'package:priscription_app/core/network/api_service.dart';
 import 'package:scribble/scribble.dart';
 import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_recognition.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_recognition.dart'
+    as mlkit;
 
 class Patient {
   final int id;
@@ -24,6 +29,7 @@ class Patient {
     required this.mobile,
   });
 
+
   factory Patient.fromJson(Map<String, dynamic> j) {
     final parts = [
       j['patient_first_name'] ?? '',
@@ -35,8 +41,8 @@ class Patient {
     final gender = genderCode == 1
         ? 'Male'
         : genderCode == 2
-            ? 'Female'
-            : 'Other';
+        ? 'Female'
+        : 'Other';
 
     return Patient(
       id: j['id'] ?? 0,
@@ -46,6 +52,23 @@ class Patient {
       gender: gender,
       dob: j['dob'] ?? '',
       mobile: j['mobile'] ?? '',
+    );
+  }
+}
+
+class DoctorData {
+  final String fullName;
+  final String qualifications;
+
+  DoctorData({
+    required this.fullName,
+    required this.qualifications,
+  });
+
+  factory DoctorData.fromJson(Map<String, dynamic> json) {
+    return DoctorData(
+      fullName: json['doctor_name'] ?? '',
+      qualifications: json['qualification'] ?? '',
     );
   }
 }
@@ -68,9 +91,12 @@ class PrescriptionPage extends StatefulWidget {
   @override
   State<PrescriptionPage> createState() => _PrescriptionPageState();
 }
-
 class _PrescriptionPageState extends State<PrescriptionPage> {
   final _notifier = ScribbleNotifier();
+
+  static const FlutterSecureStorage _storage =
+      FlutterSecureStorage();
+
   late DigitalInkRecognizer _recognizer;
   late stt.SpeechToText _speech;
   bool _isListening = false;
@@ -80,6 +106,18 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   bool _isRecognizing = false;
   bool _isSaving = false;
 
+     DoctorData? doctorData;
+  bool _loadingDoctor = true;
+  static Future<Map<String, String>> _headers() async {
+  final token = await _storage.read(key: 'access_token'); // ✅ match login key
+
+  return {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    if (token != null) "Authorization": "Bearer $token",
+  };
+}
+  
   final _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
 
@@ -148,27 +186,80 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     r'\b(\d+)\s*(day|days|week|weeks|month|months)\b',
     caseSensitive: false,
   );
+@override
+void initState() {
+  super.initState();
 
-  @override
-  void initState() {
-    super.initState();
-    _loadModel();
-    _notifier.addListener(_onDrawChanged);
-    _speech = stt.SpeechToText();
+  _loadDoctorDetails();
+  _loadModel();
+
+  _notifier.addListener(_onDrawChanged);
+  _speech = stt.SpeechToText();
+}
+
+
+Future<void> _loadDoctorDetails() async {
+  try {
+    final response = await http.get(
+      Uri.parse('https://hms.yourhrms.in/api/doctor/DOC001/'),
+      headers: await _headers(),
+    );
+
+    debugPrint("Doctor API Status: ${response.statusCode}");
+    debugPrint("Doctor API Body: ${response.body}");
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+
+      setState(() {
+        doctorData = DoctorData.fromJson(data);
+        _loadingDoctor = false;
+      });
+    } else {
+      setState(() => _loadingDoctor = false);
+    }
+  } catch (e) {
+    debugPrint("Doctor API Error: $e");
+    setState(() => _loadingDoctor = false);
   }
-
-  Future<void> _loadModel() async {
+}
+Future<void> _loadModel() async {
+  try {
     final manager = DigitalInkRecognizerModelManager();
-    await manager.downloadModel('en');
-    _recognizer = DigitalInkRecognizer(languageCode: 'en');
-    setState(() => _isModelLoaded = true);
+
+    final isDownloaded =
+        await manager.isModelDownloaded('en-US');
+
+    if (!isDownloaded) {
+      await manager.downloadModel('en-US');
+    }
+
+    _recognizer =
+        mlkit.DigitalInkRecognizer(languageCode: 'en-US');
+
+    if (mounted) {
+      setState(() {
+        _isModelLoaded = true;
+      });
+    }
+  } catch (e) {
+    debugPrint("Model load failed: $e");
+
+    if (mounted) {
+      setState(() {
+        _isModelLoaded = true;
+      });
+    }
   }
+}
 
   @override
   void dispose() {
     _debounce?.cancel();
     _notifier.removeListener(_onDrawChanged);
-    _recognizer.close();
+    if (_isModelLoaded) {
+      _recognizer.close();
+    }
     _removeOverlay();
     super.dispose();
   }
@@ -215,17 +306,22 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       );
     }
 
-    if (_suggestions.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.all(14),
-        child: Text(
-          _searchQuery.isEmpty
-              ? 'Write on the pad to search patients'
-              : 'No patients found for "$_searchQuery"',
-          style: const TextStyle(color: Colors.grey, fontSize: 13),
-        ),
-      );
-    }
+  if (_suggestions.isEmpty && _searchQuery.isEmpty) {
+  return const Padding(
+    padding: EdgeInsets.all(14),
+    child: Text(
+      'Write on the pad to search patients',
+      style: TextStyle(
+        color: Colors.grey,
+        fontSize: 13,
+      ),
+    ),
+  );
+}
+
+if (_suggestions.isEmpty && _searchQuery.isNotEmpty) {
+  return const SizedBox.shrink(); // box close
+}
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 220),
@@ -367,44 +463,82 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   }
 
   void _onDrawChanged() {
-    if (!_isModelLoaded) return;
+    if (!_isModelLoaded || _isRecognizing) return;
+
     _debounce?.cancel();
-    _debounce = Timer(const Duration(seconds: 2), () async {
-      if (_notifier.currentSketch.lines.isNotEmpty) await _recognizeText();
+
+    final lines = _notifier.currentSketch.lines;
+
+    if (lines.isEmpty) return;
+
+final hasInk = lines.any((l) => l.points.isNotEmpty);
+   final totalPoints = lines.fold<int>(
+  0,
+  (sum, l) => sum + l.points.length,
+);
+
+if (totalPoints < 5) return;
+
+    _debounce = Timer(const Duration(milliseconds: 800), () async {
+      await _recognizeText();
     });
   }
 
-  Future<void> _recognizeText() async {
-    if (_isRecognizing) return;
-    final lines = _notifier.currentSketch.lines;
-    if (lines.isEmpty) return;
+Future<void> _recognizeText() async {
+  if (_isRecognizing) return;
 
-    setState(() => _isRecognizing = true);
+  final lines = _notifier.currentSketch.lines;
+  if (lines.isEmpty) return;
 
-    try {
-      final ink = Ink();
-      int time = 0;
-      for (final line in lines) {
-        final stroke = Stroke();
-        for (final pt in line.points) {
-          time += 10;
-          stroke.points.add(StrokePoint(x: pt.x, y: pt.y, t: time));
-        }
-        ink.strokes.add(stroke);
+  setState(() => _isRecognizing = true);
+
+  try {
+    final ink = mlkit.Ink();
+    int time = 0;
+
+    for (final line in lines) {
+      final stroke = mlkit.Stroke();
+
+      for (final pt in line.points) {
+        time += 10;
+        stroke.points.add(
+          mlkit.StrokePoint(x: pt.x, y: pt.y, t: time),
+        );
       }
 
-      final candidates = await _recognizer.recognize(ink);
-      if (candidates.isNotEmpty) {
-        final text = _pickBest(candidates);
-        if (text.isNotEmpty) _assignText(text);
-      }
-      _notifier.clear();
-    } catch (e) {
-      debugPrint('Recognition error: $e');
+      ink.strokes.add(stroke);
     }
 
-    setState(() => _isRecognizing = false);
+    final candidates = await _recognizer.recognize(ink);
+
+    if (candidates.isNotEmpty) {
+      final text = _pickBest(candidates);
+
+      if (text.trim().isNotEmpty) {
+        debugPrint("RECOGNIZED TEXT: $text");
+
+        await Future.delayed(const Duration(milliseconds: 100));
+
+        _assignText(text);
+
+        debugPrint("ACTIVE FIELD: $activeField");
+        debugPrint("SELECTED COLUMN: $selectedColumn");
+        debugPrint("TEXT RECEIVED: $text");
+
+        if (mounted) setState(() {});
+      }
+    }
+  } catch (e) {
+    debugPrint('Recognition error: $e');
+  } finally {
+    if (mounted) {
+      setState(() => _isRecognizing = false);
+    }
+
+    await Future.delayed(const Duration(milliseconds: 1500));
+    _notifier.clear();
   }
+}
 
   String _pickBest(List<RecognitionCandidate> c) {
     if (activeField == 'medicine' && selectedColumn == 'dose') {
@@ -441,8 +575,9 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     return '';
   }
 
-  ({String name, String dose, String meal, String duration})
-      _splitMedicineDose(String raw) {
+  ({String name, String dose, String meal, String duration}) _splitMedicineDose(
+    String raw,
+  ) {
     String remaining = raw;
     String dose = '';
     String meal = '';
@@ -463,7 +598,8 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       if (lower.contains(entry.key)) {
         meal = entry.value;
         final idx = lower.indexOf(entry.key);
-        remaining = remaining.substring(0, idx) +
+        remaining =
+            remaining.substring(0, idx) +
             remaining.substring(idx + entry.key.length);
         break;
       }
@@ -472,11 +608,17 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     final durMatch = _durationPattern.firstMatch(remaining);
     if (durMatch != null) {
       duration = durMatch.group(0)!.trim();
-      remaining = remaining.substring(0, durMatch.start) +
+      remaining =
+          remaining.substring(0, durMatch.start) +
           remaining.substring(durMatch.end);
     }
 
-    return (name: _clean(remaining), dose: dose, meal: meal, duration: duration);
+    return (
+      name: _clean(remaining),
+      dose: dose,
+      meal: meal,
+      duration: duration,
+    );
   }
 
   void _assignText(String text) {
@@ -527,11 +669,12 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
           break;
         default:
           final data = _splitMedicineDose(text);
-          row.name = data.name;
-          row.dose = data.dose;
-          row.meal = data.meal;
-          row.duration = data.duration;
+          debugPrint("Parsed Name: ${data.name}");
+          debugPrint("Parsed Dose: ${data.dose}");
+          debugPrint("Parsed Meal: ${data.meal}");
+          debugPrint("Parsed Duration: ${data.duration}");
       }
+      final idx = editingRowIndex;
       editingRowIndex = null;
     });
     _showSnack('✏️ Updated', Colors.orange);
@@ -558,8 +701,11 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       final idx = medicines.lastIndexWhere((m) => m.duration.isEmpty);
       if (idx != -1) {
         final m = _durationPattern.firstMatch(text);
-        setState(() => medicines[idx].duration =
-            m != null ? m.group(0)!.trim() : text.trim());
+        setState(
+          () => medicines[idx].duration = m != null
+              ? m.group(0)!.trim()
+              : text.trim(),
+        );
       }
       return;
     }
@@ -608,7 +754,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       _searchQuery = p.fullName;
       _showSuggestions = false;
     });
-    _removeOverlay();
+    // _removeOverlay();
     _showSnack('👤 ${p.fullName} loaded', Colors.blue);
   }
 
@@ -619,28 +765,23 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       _suggestions = [];
       _showSuggestions = false;
     });
-    _removeOverlay();
   }
+void _activateNameField() {
+  setState(() {
+    activeField = 'name';
+    _showSuggestions = true;
+    editingRowIndex = null;
+  });
 
-  void _activateNameField() {
-    setState(() {
-      activeField = 'name';
-      _showSuggestions = true;
-      editingRowIndex = null;
-    });
-    _notifier.clear();
-    _showOverlay();
-  }
+  _showOverlay();
+}
 
   void _selectColumn(String col) {
     setState(() {
       activeField = 'medicine';
       selectedColumn = col;
       editingRowIndex = null;
-      _showSuggestions = false;
     });
-    _removeOverlay();
-    _notifier.clear();
   }
 
   void _selectCell(int row, String col) {
@@ -650,8 +791,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       editingRowIndex = row;
       _showSuggestions = false;
     });
-    _removeOverlay();
-    _notifier.clear();
   }
 
   void _setPatientField(String field) {
@@ -660,8 +799,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       _showSuggestions = false;
       editingRowIndex = null;
     });
-    _removeOverlay();
-    _notifier.clear();
   }
 
   void _deleteMedicine(int index) {
@@ -672,7 +809,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   }
 
   void _clearAll() {
-    _notifier.clear();
     _clearPatient();
     setState(() {
       medicines.clear();
@@ -690,7 +826,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     setState(() => _isSaving = true);
 
     try {
-      
       await Future.delayed(const Duration(milliseconds: 800));
 
       _showSnack(
@@ -727,7 +862,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                 _buildPatientInfo(),
                 _buildTableHeader(),
                 _buildMedicineList(),
-                _buildSaveButton(), 
+                _buildSaveButton(),
                 const SizedBox(height: 4),
                 _buildRxSymbol(),
                 _buildDrawArea(),
@@ -739,81 +874,78 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     );
   }
 
-Widget _buildSaveButton() {
-  final bool canSave = medicines.isNotEmpty && !_isSaving;
+  Widget _buildSaveButton() {
+    final bool canSave = medicines.isNotEmpty && !_isSaving;
 
-  return Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.end, 
-      children: [
-        SizedBox(
-          width: 100,
-          height: 50,
-          child: ElevatedButton(
-            onPressed: canSave ? _savePrescription : null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: Colors.grey.shade300,
-              disabledForegroundColor: Colors.grey.shade500,
-              elevation: canSave ? 2 : 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          SizedBox(
+            width: 100,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: canSave ? _savePrescription : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade300,
+                disabledForegroundColor: Colors.grey.shade500,
+                elevation: canSave ? 2 : 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
               ),
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text(
+                      'Save',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
-            child: _isSaving
-                ? const SizedBox(
-                    width: 20,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Text(
-                    'Save',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
           ),
-        ),
 
-        const SizedBox(width: 10),
+          const SizedBox(width: 10),
 
-        SizedBox(
-          width: 100,
-          height: 50,
-          child: ElevatedButton(
-            onPressed: _cancelPrescription,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
+          SizedBox(
+            width: 100,
+            height: 50,
+            child: ElevatedButton(
+              onPressed: _cancelPrescription,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
               ),
-            ),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+              child: const Text(
+                'Cancel',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
               ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
-void _cancelPrescription() {
-  _clearAll();                         
-  _showSnack('🚫 Prescription cancelled', Colors.grey);
-}
+  void _cancelPrescription() {
+    _clearAll();
+    _showSnack('🚫 Prescription cancelled', Colors.grey);
+  }
 
   Widget _buildRxSymbol() {
     return Padding(
@@ -837,34 +969,45 @@ void _cancelPrescription() {
     );
   }
 
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-      child: Row(
-        children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Dr. John Smith',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              Text('MBBS, General Physician', style: TextStyle(fontSize: 12)),
-            ],
-          ),
-          const Spacer(),
-          if (!_isModelLoaded)
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-         
-        ],
-      ),
-    );
-  }
-
+Widget _buildHeader() {
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+    child: Row(
+      children: [
+        Expanded(
+          child: _loadingDoctor
+              ? const SizedBox(
+                  height: 40,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      doctorData?.fullName ?? 'Doctor',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      doctorData?.qualifications ?? '',
+                      style: const TextStyle(
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ],
+    ),
+  );
+}
   Widget _buildPatientInfo() {
     final isNameActive = activeField == 'name';
 
@@ -898,8 +1041,8 @@ void _cancelPrescription() {
                         _searchQuery.isNotEmpty
                             ? _searchQuery
                             : patientName.isNotEmpty
-                                ? patientName
-                                : 'Patient Name / UHID / Mobile',
+                            ? patientName
+                            : 'Patient Name / UHID / Mobile',
                         style: TextStyle(
                           fontSize: 14,
                           color: (_searchQuery.isEmpty && patientName.isEmpty)
@@ -984,8 +1127,8 @@ void _cancelPrescription() {
     final borderColor = isName
         ? Colors.teal
         : activeField == 'medicine'
-            ? Colors.blue
-            : Colors.purple;
+        ? Colors.blue
+        : Colors.purple;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1027,7 +1170,7 @@ void _cancelPrescription() {
                               color: Colors.red.withOpacity(0.4),
                               blurRadius: 8,
                               spreadRadius: 2,
-                            )
+                            ),
                           ]
                         : [],
                   ),
@@ -1052,9 +1195,7 @@ void _cancelPrescription() {
             borderRadius: BorderRadius.circular(2),
             child: Stack(
               children: [
-                ClipRect(
-                  child: Scribble(notifier: _notifier),
-                ),
+                ClipRect(child: Scribble(notifier: _notifier, drawPen: true)),
                 if (_isRecognizing || _isListening)
                   Container(
                     color: Colors.white60,
@@ -1062,14 +1203,9 @@ void _cancelPrescription() {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          if (_isRecognizing)
-                            const CircularProgressIndicator(),
+                          if (_isRecognizing) const CircularProgressIndicator(),
                           if (_isListening) ...[
-                            const Icon(
-                              Icons.mic,
-                              color: Colors.red,
-                              size: 40,
-                            ),
+                            const Icon(Icons.mic, color: Colors.red, size: 40),
                             const SizedBox(height: 8),
                             Text(
                               _spokenText.isEmpty
@@ -1229,10 +1365,7 @@ void _cancelPrescription() {
       ),
       child: Row(
         children: [
-          SizedBox(
-            width: 36,
-            child: _cell(item.sr),
-          ),
+          SizedBox(width: 36, child: _cell(item.sr)),
           Expanded(
             flex: 4,
             child: GestureDetector(

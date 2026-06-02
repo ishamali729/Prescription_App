@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:priscription_app/core/routing/rounting.dart';
 import 'package:priscription_app/feature/Screens/prescription_page.dart';
 
 void main() {
@@ -11,6 +12,9 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home:const PrescriptionPage());
+      debugShowCheckedModeBanner: false,
+      initialRoute: AppRouter.loginPage,
+      onGenerateRoute: AppRouter.generateRoute,
+    );
   }
 }
