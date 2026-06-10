@@ -29,7 +29,6 @@ class Patient {
     required this.mobile,
   });
 
-
   factory Patient.fromJson(Map<String, dynamic> j) {
     final parts = [
       j['patient_first_name'] ?? '',
@@ -60,10 +59,7 @@ class DoctorData {
   final String fullName;
   final String qualifications;
 
-  DoctorData({
-    required this.fullName,
-    required this.qualifications,
-  });
+  DoctorData({required this.fullName, required this.qualifications});
 
   factory DoctorData.fromJson(Map<String, dynamic> json) {
     return DoctorData(
@@ -91,11 +87,11 @@ class PrescriptionPage extends StatefulWidget {
   @override
   State<PrescriptionPage> createState() => _PrescriptionPageState();
 }
-class _PrescriptionPageState extends State<PrescriptionPage> {
-  final _notifier = ScribbleNotifier();
 
-  static const FlutterSecureStorage _storage =
-      FlutterSecureStorage();
+class _PrescriptionPageState extends State<PrescriptionPage> {
+  final TextEditingController _keyboardController = TextEditingController();
+
+  static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
   late DigitalInkRecognizer _recognizer;
   late stt.SpeechToText _speech;
@@ -106,18 +102,20 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   bool _isRecognizing = false;
   bool _isSaving = false;
 
-     DoctorData? doctorData;
+  final ScribbleNotifier _notifier = ScribbleNotifier();
+
+  DoctorData? doctorData;
   bool _loadingDoctor = true;
   static Future<Map<String, String>> _headers() async {
-  final token = await _storage.read(key: 'access_token'); // ✅ match login key
+    final token = await _storage.read(key: 'access_token'); // ✅ match login key
 
-  return {
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-    if (token != null) "Authorization": "Bearer $token",
-  };
-}
-  
+    return {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      if (token != null) "Authorization": "Bearer $token",
+    };
+  }
+
   final _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
 
@@ -186,80 +184,83 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     r'\b(\d+)\s*(day|days|week|weeks|month|months)\b',
     caseSensitive: false,
   );
-@override
-void initState() {
-  super.initState();
+  @override
+  void initState() {
+    super.initState();
 
-  _loadDoctorDetails();
-  _loadModel();
+    _loadDoctorDetails();
+    _loadModel();
 
-  _notifier.addListener(_onDrawChanged);
-  _speech = stt.SpeechToText();
-}
+    _notifier.addListener(_onDrawChanged);
+    _speech = stt.SpeechToText();
+  }
 
+  Future<void> _loadDoctorDetails() async {
+    try {
+      final response = await http.get(
+        Uri.parse('https://hms.yourhrms.in/api/doctor/DOC001/'),
+        headers: await _headers(),
+      );
 
-Future<void> _loadDoctorDetails() async {
-  try {
-    final response = await http.get(
-      Uri.parse('https://hms.yourhrms.in/api/doctor/DOC001/'),
-      headers: await _headers(),
-    );
+      debugPrint("Doctor API Status: ${response.statusCode}");
+      debugPrint("Doctor API Body: ${response.body}");
 
-    debugPrint("Doctor API Status: ${response.statusCode}");
-    debugPrint("Doctor API Body: ${response.body}");
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-
-      setState(() {
-        doctorData = DoctorData.fromJson(data);
-        _loadingDoctor = false;
-      });
-    } else {
+        setState(() {
+          doctorData = DoctorData.fromJson(data);
+          _loadingDoctor = false;
+        });
+      } else {
+        setState(() => _loadingDoctor = false);
+      }
+    } catch (e) {
+      debugPrint("Doctor API Error: $e");
       setState(() => _loadingDoctor = false);
     }
-  } catch (e) {
-    debugPrint("Doctor API Error: $e");
-    setState(() => _loadingDoctor = false);
   }
-}
-Future<void> _loadModel() async {
-  try {
-    final manager = DigitalInkRecognizerModelManager();
 
-    final isDownloaded =
-        await manager.isModelDownloaded('en-US');
+  Future<void> _loadModel() async {
+    try {
+      final manager = DigitalInkRecognizerModelManager();
 
-    if (!isDownloaded) {
-      await manager.downloadModel('en-US');
-    }
+      final isDownloaded = await manager.isModelDownloaded('en-US');
 
-    _recognizer =
-        mlkit.DigitalInkRecognizer(languageCode: 'en-US');
+      if (!isDownloaded) {
+        await manager.downloadModel('en-US');
+      }
 
-    if (mounted) {
-      setState(() {
-        _isModelLoaded = true;
-      });
-    }
-  } catch (e) {
-    debugPrint("Model load failed: $e");
+      _recognizer = mlkit.DigitalInkRecognizer(languageCode: 'en-US');
 
-    if (mounted) {
-      setState(() {
-        _isModelLoaded = true;
-      });
+      if (mounted) {
+        setState(() {
+          _isModelLoaded = true;
+        });
+      }
+    } catch (e) {
+      debugPrint("Model load failed: $e");
+
+      if (mounted) {
+        setState(() {
+          _isModelLoaded = true;
+        });
+      }
     }
   }
-}
 
+  @override
   @override
   void dispose() {
     _debounce?.cancel();
     _notifier.removeListener(_onDrawChanged);
+
+    _keyboardController.dispose();
+
     if (_isModelLoaded) {
       _recognizer.close();
     }
+
     _removeOverlay();
     super.dispose();
   }
@@ -306,22 +307,9 @@ Future<void> _loadModel() async {
       );
     }
 
-  if (_suggestions.isEmpty && _searchQuery.isEmpty) {
-  return const Padding(
-    padding: EdgeInsets.all(14),
-    child: Text(
-      'Write on the pad to search patients',
-      style: TextStyle(
-        color: Colors.grey,
-        fontSize: 13,
-      ),
-    ),
-  );
-}
-
-if (_suggestions.isEmpty && _searchQuery.isNotEmpty) {
-  return const SizedBox.shrink(); // box close
-}
+    if (_suggestions.isEmpty && _searchQuery.isNotEmpty) {
+      return const SizedBox.shrink(); // box close
+    }
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 220),
@@ -471,74 +459,69 @@ if (_suggestions.isEmpty && _searchQuery.isNotEmpty) {
 
     if (lines.isEmpty) return;
 
-final hasInk = lines.any((l) => l.points.isNotEmpty);
-   final totalPoints = lines.fold<int>(
-  0,
-  (sum, l) => sum + l.points.length,
-);
+    final hasInk = lines.any((l) => l.points.isNotEmpty);
+    final totalPoints = lines.fold<int>(0, (sum, l) => sum + l.points.length);
 
-if (totalPoints < 5) return;
+    if (totalPoints < 5) return;
 
     _debounce = Timer(const Duration(milliseconds: 800), () async {
       await _recognizeText();
     });
   }
 
-Future<void> _recognizeText() async {
-  if (_isRecognizing) return;
+  Future<void> _recognizeText() async {
+    if (_isRecognizing) return;
 
-  final lines = _notifier.currentSketch.lines;
-  if (lines.isEmpty) return;
+    final lines = _notifier.currentSketch.lines;
+    if (lines.isEmpty) return;
 
-  setState(() => _isRecognizing = true);
+    setState(() => _isRecognizing = true);
 
-  try {
-    final ink = mlkit.Ink();
-    int time = 0;
+    try {
+      final ink = mlkit.Ink();
+      int time = 0;
 
-    for (final line in lines) {
-      final stroke = mlkit.Stroke();
+      for (final line in lines) {
+        final stroke = mlkit.Stroke();
 
-      for (final pt in line.points) {
-        time += 10;
-        stroke.points.add(
-          mlkit.StrokePoint(x: pt.x, y: pt.y, t: time),
-        );
+        for (final pt in line.points) {
+          time += 10;
+          stroke.points.add(mlkit.StrokePoint(x: pt.x, y: pt.y, t: time));
+        }
+
+        ink.strokes.add(stroke);
       }
 
-      ink.strokes.add(stroke);
-    }
+      final candidates = await _recognizer.recognize(ink);
 
-    final candidates = await _recognizer.recognize(ink);
+      if (candidates.isNotEmpty) {
+        final text = _pickBest(candidates);
 
-    if (candidates.isNotEmpty) {
-      final text = _pickBest(candidates);
+        if (text.trim().isNotEmpty) {
+          debugPrint("RECOGNIZED TEXT: $text");
 
-      if (text.trim().isNotEmpty) {
-        debugPrint("RECOGNIZED TEXT: $text");
+          await Future.delayed(const Duration(milliseconds: 100));
 
-        await Future.delayed(const Duration(milliseconds: 100));
+          _assignText(text);
 
-        _assignText(text);
+          debugPrint("ACTIVE FIELD: $activeField");
+          debugPrint("SELECTED COLUMN: $selectedColumn");
+          debugPrint("TEXT RECEIVED: $text");
 
-        debugPrint("ACTIVE FIELD: $activeField");
-        debugPrint("SELECTED COLUMN: $selectedColumn");
-        debugPrint("TEXT RECEIVED: $text");
-
-        if (mounted) setState(() {});
+          if (mounted) setState(() {});
+        }
       }
-    }
-  } catch (e) {
-    debugPrint('Recognition error: $e');
-  } finally {
-    if (mounted) {
-      setState(() => _isRecognizing = false);
-    }
+    } catch (e) {
+      debugPrint('Recognition error: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isRecognizing = false);
+      }
 
-    await Future.delayed(const Duration(milliseconds: 1500));
-    _notifier.clear();
+      await Future.delayed(const Duration(milliseconds: 1500));
+      _notifier.clear();
+    }
   }
-}
 
   String _pickBest(List<RecognitionCandidate> c) {
     if (activeField == 'medicine' && selectedColumn == 'dose') {
@@ -754,7 +737,8 @@ Future<void> _recognizeText() async {
       _searchQuery = p.fullName;
       _showSuggestions = false;
     });
-    // _removeOverlay();
+    _keyboardController.clear();
+    _removeOverlay();
     _showSnack('👤 ${p.fullName} loaded', Colors.blue);
   }
 
@@ -766,15 +750,19 @@ Future<void> _recognizeText() async {
       _showSuggestions = false;
     });
   }
-void _activateNameField() {
-  setState(() {
-    activeField = 'name';
-    _showSuggestions = true;
-    editingRowIndex = null;
-  });
 
-  _showOverlay();
-}
+  void _activateNameField() {
+    setState(() {
+      activeField = 'name';
+      _showSuggestions = true;
+      editingRowIndex = null;
+    });
+    _keyboardController.text = _searchQuery;
+    _keyboardController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _searchQuery.length),
+    );
+    _showOverlay();
+  }
 
   void _selectColumn(String col) {
     setState(() {
@@ -791,6 +779,18 @@ void _activateNameField() {
       editingRowIndex = row;
       _showSuggestions = false;
     });
+    final item = medicines[row];
+    String existing = switch (col) {
+      'name' => item.name,
+      'dose' => item.dose,
+      'meal' => item.meal,
+      'duration' => item.duration,
+      _ => '',
+    };
+    _keyboardController.text = existing;
+    _keyboardController.selection = TextSelection.fromPosition(
+      TextPosition(offset: existing.length),
+    );
   }
 
   void _setPatientField(String field) {
@@ -969,45 +969,42 @@ void _activateNameField() {
     );
   }
 
-Widget _buildHeader() {
-  return Padding(
-    padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-    child: Row(
-      children: [
-        Expanded(
-          child: _loadingDoctor
-              ? const SizedBox(
-                  height: 40,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: _loadingDoctor
+                ? const SizedBox(
+                    height: 40,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        doctorData?.fullName ?? 'Doctor',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        doctorData?.qualifications ?? '',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
                   ),
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      doctorData?.fullName ?? 'Doctor',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      doctorData?.qualifications ?? '',
-                      style: const TextStyle(
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-        ),
-      ],
-    ),
-  );
-}
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPatientInfo() {
     final isNameActive = activeField == 'name';
 
@@ -1231,6 +1228,38 @@ Widget _buildHeader() {
                       ),
                     ),
                   ),
+                const SizedBox(height: 8),
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: TextField(
+                    controller: _keyboardController,
+                    decoration: InputDecoration(
+                      hintText: _activeFieldHint(),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.send),
+                        onPressed: () {
+                          if (_keyboardController.text.trim().isEmpty) return;
+
+                          _assignText(_keyboardController.text.trim());
+
+                          _keyboardController.clear();
+                          FocusScope.of(context).unfocus();
+                        },
+                      ),
+                    ),
+                    onSubmitted: (value) {
+                      if (value.trim().isEmpty) return;
+
+                      _assignText(value.trim());
+
+                      _keyboardController.clear();
+                    },
+                  ),
+                ),
               ],
             ),
           ),
