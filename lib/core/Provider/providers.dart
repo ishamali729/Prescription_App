@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../network/api_service.dart';
 
 class ProvidersProvider with ChangeNotifier {
-
   List<dynamic> _providers = [];
   bool _isLoading = false;
   String _error = "";

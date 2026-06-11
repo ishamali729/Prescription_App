@@ -9,10 +9,13 @@ import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_re
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_recognition.dart'
     as mlkit;
+
+// ─── Models ────────────────────────────────────────────────────────────────
+
 class Patient {
   final int id;
   final String uhid;
-  final String patientCode;  // ← add this
+  final String patientCode;
   final String fullName;
   final String age;
   final String gender;
@@ -22,7 +25,7 @@ class Patient {
   const Patient({
     required this.id,
     required this.uhid,
-    required this.patientCode,  // ← add this
+    required this.patientCode,
     required this.fullName,
     required this.age,
     required this.gender,
@@ -41,13 +44,13 @@ class Patient {
     final gender = genderCode == 1
         ? 'Male'
         : genderCode == 2
-            ? 'Female'
-            : 'Other';
+        ? 'Female'
+        : 'Other';
 
     return Patient(
       id: j['id'] ?? 0,
       uhid: j['uhid'] ?? '',
-      patientCode: j['patient_code'] ?? j['uhid'] ?? '',  // ← add this
+      patientCode: j['patient_code'] ?? j['uhid'] ?? '',
       fullName: parts.join(' '),
       age: (j['age'] ?? '').toString(),
       gender: gender,
@@ -97,6 +100,8 @@ class MedicineSuggestion {
   }
 }
 
+// ─── Widget ─────────────────────────────────────────────────────────────────
+
 class PrescriptionPage extends StatefulWidget {
   const PrescriptionPage({super.key});
 
@@ -105,10 +110,14 @@ class PrescriptionPage extends StatefulWidget {
 }
 
 class _PrescriptionPageState extends State<PrescriptionPage> {
-  final _notifier = ScribbleNotifier();
+  // ── Controllers & notifiers ──────────────────────────────────────────────
+  final ScribbleNotifier _notifier = ScribbleNotifier();
+  final TextEditingController _keyboardController = TextEditingController();
 
+  // ── Storage ──────────────────────────────────────────────────────────────
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
+  // ── ML Kit & Speech ──────────────────────────────────────────────────────
   late DigitalInkRecognizer _recognizer;
   late stt.SpeechToText _speech;
   bool _isListening = false;
@@ -118,28 +127,19 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   bool _isRecognizing = false;
   bool _isSaving = false;
 
+  // ── Doctor ───────────────────────────────────────────────────────────────
   DoctorData? doctorData;
   bool _loadingDoctor = true;
 
-  static Future<Map<String, String>> _headers() async {
-    final token = await _storage.read(key: 'access_token');
-    return {
-      "Content-Type": "application/json",
-      "Accept": "application/json",
-      if (token != null) "Authorization": "Bearer $token",
-    };
-  }
-
-  // ─── Patient search overlay ────────────────────────────────────────────────
+  // ── Patient search overlay ───────────────────────────────────────────────
   final _patientLayerLink = LayerLink();
   OverlayEntry? _patientOverlayEntry;
-
   String _searchQuery = '';
   List<Patient> _suggestions = [];
   bool _isSearching = false;
   bool _showSuggestions = false;
 
-  // ─── Medicine name search overlay ─────────────────────────────────────────
+  // ── Medicine overlay ─────────────────────────────────────────────────────
   final _medicineLayerLinks = <int, LayerLink>{};
   OverlayEntry? _medicineOverlayEntry;
   int? _activeMedicineRow;
@@ -148,6 +148,22 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   bool _isSearchingMedicine = false;
   Timer? _medicineDebounce;
 
+  // ── Patient fields ───────────────────────────────────────────────────────
+  String patientName = '';
+  String patientAge = '';
+  String patientGender = '';
+  String date = '';
+  String patientUhid = '';
+  String patientCode = '';
+  int patientId = 0;
+
+  // ── Medicine table ───────────────────────────────────────────────────────
+  List<MedicineItem> medicines = [];
+  String activeField = 'medicine';
+  String selectedColumn = 'name';
+  int? editingRowIndex;
+
+  // ── Common medicines list ─────────────────────────────────────────────────
   static const List<String> _commonMedicines = [
     "Paracetamol 500mg",
     "Diclofenac 50mg",
@@ -187,21 +203,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     "Soframycin Cream",
   ];
 
-  List<MedicineItem> medicines = [];
-
-String patientName = '';
-  String patientAge = '';
-  String patientGender = '';
-  String date = '';
-  String patientUhid = '';
-  String patientCode = '';  // ← add this
-  int patientId = 0;
-
-  String activeField = 'medicine';
-  String selectedColumn = 'name';
-  int? editingRowIndex;
-
-  // ─── Dose aliases ──────────────────────────────────────────────────────────
+  // ── Dose aliases ──────────────────────────────────────────────────────────
   static const Map<String, String> _doseAliases = {
     '1-0-0-0': '1-0-0-0',
     '0-1-0-0': '0-1-0-0',
@@ -234,12 +236,12 @@ String patientName = '';
     RegExp(r'\b([01]-[01]-[01]-[01])\b', caseSensitive: false),
   ];
 
-static final RegExp _durationPattern = RegExp(
-    r'\b(\d+)\s*(day|days|)\b',
+  static final RegExp _durationPattern = RegExp(
+    r'\b(\d+)\s*(day|days|week|weeks|month|months)\b',
     caseSensitive: false,
   );
 
-  // ─── Dropdown options ──────────────────────────────────────────────────────
+  // ── Dropdown options ──────────────────────────────────────────────────────
   static const List<String> _doseOptions = [
     '1-0-0-0',
     '0-1-0-0',
@@ -264,13 +266,18 @@ static final RegExp _durationPattern = RegExp(
     'With meal',
   ];
 
-static const List<String> _durationOptions = [
+  static const List<String> _durationOptions = [
     '1 day',
     '5 days',
     '7 days',
     '15 days',
     '30 days',
   ];
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Lifecycle
+  // ─────────────────────────────────────────────────────────────────────────
+
   @override
   void initState() {
     super.initState();
@@ -280,12 +287,43 @@ static const List<String> _durationOptions = [
     _speech = stt.SpeechToText();
   }
 
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _medicineDebounce?.cancel();
+    _notifier.removeListener(_onDrawChanged);
+    _keyboardController.dispose();
+    if (_isModelLoaded) _recognizer.close();
+    _removePatientOverlay();
+    _removeMedicineOverlay();
+    super.dispose();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Auth headers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  static Future<Map<String, String>> _headers() async {
+    final token = await _storage.read(key: 'access_token');
+    return {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      if (token != null) "Authorization": "Bearer $token",
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Doctor
+  // ─────────────────────────────────────────────────────────────────────────
+
   Future<void> _loadDoctorDetails() async {
     try {
       final response = await http.get(
         Uri.parse('https://hms.yourhrms.in/api/doctor/DOC001/'),
         headers: await _headers(),
       );
+      debugPrint("Doctor API Status: ${response.statusCode}");
+      debugPrint("Doctor API Body: ${response.body}");
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
@@ -301,6 +339,10 @@ static const List<String> _durationOptions = [
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // ML Kit model
+  // ─────────────────────────────────────────────────────────────────────────
+
   Future<void> _loadModel() async {
     try {
       final manager = DigitalInkRecognizerModelManager();
@@ -314,18 +356,10 @@ static const List<String> _durationOptions = [
     }
   }
 
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _medicineDebounce?.cancel();
-    _notifier.removeListener(_onDrawChanged);
-    if (_isModelLoaded) _recognizer.close();
-    _removePatientOverlay();
-    _removeMedicineOverlay();
-    super.dispose();
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // Patient overlay
+  // ─────────────────────────────────────────────────────────────────────────
 
-  // ─── Patient overlay ───────────────────────────────────────────────────────
   void _showPatientOverlay() {
     _removePatientOverlay();
     final overlay = Overlay.of(context);
@@ -364,6 +398,9 @@ static const List<String> _durationOptions = [
           ),
         ),
       );
+    }
+    if (_suggestions.isEmpty && _searchQuery.isNotEmpty) {
+      return const SizedBox.shrink();
     }
     return ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 220),
@@ -430,7 +467,10 @@ static const List<String> _durationOptions = [
     );
   }
 
-  // ─── Medicine overlay ──────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Medicine overlay
+  // ─────────────────────────────────────────────────────────────────────────
+
   LayerLink _getMedicineLinkForRow(int index) {
     if (!_medicineLayerLinks.containsKey(index)) {
       _medicineLayerLinks[index] = LayerLink();
@@ -540,9 +580,7 @@ static const List<String> _durationOptions = [
                   _medicineDebounce?.cancel();
                   _medicineDebounce = Timer(
                     const Duration(milliseconds: 400),
-                    () {
-                      _fetchMedicineSuggestions(val);
-                    },
+                    () => _fetchMedicineSuggestions(val),
                   );
                 },
               ),
@@ -637,14 +675,12 @@ static const List<String> _durationOptions = [
         'https://hms.yourhrms.in/api/medicines/?search=${Uri.encodeComponent(query)}',
       );
       final response = await http.get(uri, headers: await _headers());
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final List items = data is List ? data : (data['results'] ?? []);
         _medicineSuggestions = items
             .map((j) => MedicineSuggestion.fromJson(j))
             .toList();
-
         if (_medicineSuggestions.isEmpty) {
           _medicineSuggestions = _commonMedicines
               .where((n) => n.toLowerCase().contains(query.toLowerCase()))
@@ -668,7 +704,10 @@ static const List<String> _durationOptions = [
     _medicineOverlayEntry?.markNeedsBuild();
   }
 
-  // ─── Voice ─────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Voice
+  // ─────────────────────────────────────────────────────────────────────────
+
   Future<void> _startListening() async {
     bool available = await _speech.initialize(
       onError: (error) {
@@ -718,6 +757,10 @@ static const List<String> _durationOptions = [
     });
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Patient search
+  // ─────────────────────────────────────────────────────────────────────────
+
   Future<void> _searchPatients(String query) async {
     if (query.trim().isEmpty) {
       setState(() {
@@ -742,6 +785,10 @@ static const List<String> _durationOptions = [
     setState(() => _isSearching = false);
     _patientOverlayEntry?.markNeedsBuild();
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Drawing / recognition
+  // ─────────────────────────────────────────────────────────────────────────
 
   void _onDrawChanged() {
     if (!_isModelLoaded || _isRecognizing) return;
@@ -775,10 +822,10 @@ static const List<String> _durationOptions = [
       }
 
       final candidates = await _recognizer.recognize(ink);
-
       if (candidates.isNotEmpty) {
         final text = _pickBest(candidates);
         if (text.trim().isNotEmpty) {
+          debugPrint("RECOGNIZED TEXT: $text");
           await Future.delayed(const Duration(milliseconds: 100));
           _assignText(text);
           if (mounted) setState(() {});
@@ -807,6 +854,10 @@ static const List<String> _durationOptions = [
     return c.first.text.trim();
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Text helpers
+  // ─────────────────────────────────────────────────────────────────────────
+
   String _clean(String s) => s.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '').trim();
 
   String? _extractDose(String text) {
@@ -828,20 +879,17 @@ static const List<String> _durationOptions = [
     return '';
   }
 
-  // ─── Dose → frequency string (e.g. "1-1-1-0" → "M-A-E") ──────────────────
   String _doseToFrequency(String dose) {
     if (dose.isEmpty) return '';
     final parts = dose.split('-');
-    const labels = ['M', 'A', 'E', 'N']; // Morning, Afternoon, Evening, Night
+    const labels = ['M', 'A', 'E', 'N'];
     final active = <String>[];
     for (int i = 0; i < parts.length && i < labels.length; i++) {
       if ((int.tryParse(parts[i]) ?? 0) > 0) active.add(labels[i]);
     }
-    return active.join('-'); // "1-1-1-0" → "M-A-E"
+    return active.join('-');
   }
 
-  // ─── Duration formatter (e.g. "5 days" → "5 Days") ────────────────────────
-// ─── Convert duration to days integer ─────────────────────────────────────
   int _durationToDays(String duration) {
     if (duration.isEmpty) return 0;
     final lower = duration.toLowerCase();
@@ -849,13 +897,8 @@ static const List<String> _durationOptions = [
     if (numMatch == null) return 0;
     final num = int.tryParse(numMatch.group(0)!) ?? 0;
     if (lower.contains('month')) return num * 30;
-    if (lower.contains('week'))  return num * 7;
+    if (lower.contains('week')) return num * 7;
     return num;
-  }
-  String _extractPatientCode(String uhid) {
-    // Extract "PAT000007" from "HOSP0012026PAT000007"
-    final match = RegExp(r'PAT\d+').firstMatch(uhid);
-    return match?.group(0) ?? uhid;
   }
 
   ({String name, String dose, String meal, String duration}) _splitMedicineDose(
@@ -903,6 +946,10 @@ static const List<String> _durationOptions = [
       duration: duration,
     );
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Assign recognized / typed text
+  // ─────────────────────────────────────────────────────────────────────────
 
   void _assignText(String text) {
     if (activeField != 'medicine') {
@@ -1019,34 +1066,49 @@ static const List<String> _durationOptions = [
     );
   }
 
-void _onPatientSelected(Patient p) {
+  // ─────────────────────────────────────────────────────────────────────────
+  // Patient selection / clear
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _onPatientSelected(Patient p) {
     setState(() {
-      patientId    = p.id;
-      patientName  = p.fullName;
-      patientAge   = p.age;
+      patientId = p.id;
+      patientName = p.fullName;
+      patientAge = p.age;
       patientGender = p.gender;
-      date         = p.dob;
-      patientUhid  = p.uhid;
-      patientCode  = p.patientCode;  // ← add this
+      date = p.dob;
+      patientUhid = p.uhid;
+      patientCode = p.patientCode;
       _searchQuery = p.fullName;
       _showSuggestions = false;
       _suggestions = [];
     });
+    _keyboardController.clear();
     _removePatientOverlay();
-    // ← print to see what code we actually have
     debugPrint('👤 patientCode=$patientCode  uhid=$patientUhid');
-    _showSnack('👤 ${p.fullName}', Colors.blue);
+    _showSnack('👤 ${p.fullName} loaded', Colors.blue);
   }
-void _clearPatient() {
+
+  void _clearPatient() {
     setState(() {
-      patientId     = 0;
-      patientCode   = '';  // ← add this
-      patientName   = patientAge = patientGender = date = patientUhid = '';
-      _searchQuery  = '';
-      _suggestions  = [];
+      patientId = 0;
+      patientCode = '';
+      patientName = '';
+      patientAge = '';
+      patientGender = '';
+      date = '';
+      patientUhid = '';
+      _searchQuery = '';
+      _suggestions = [];
       _showSuggestions = false;
     });
+    _keyboardController.clear();
+    _removePatientOverlay();
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Field activation
+  // ─────────────────────────────────────────────────────────────────────────
 
   void _activateNameField() {
     setState(() {
@@ -1054,6 +1116,10 @@ void _clearPatient() {
       _showSuggestions = true;
       editingRowIndex = null;
     });
+    _keyboardController.text = _searchQuery;
+    _keyboardController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _searchQuery.length),
+    );
     _showPatientOverlay();
   }
 
@@ -1078,6 +1144,18 @@ void _clearPatient() {
     } else {
       _removeMedicineOverlay();
     }
+    final item = medicines[row];
+    final existing = switch (col) {
+      'name' => item.name,
+      'dose' => item.dose,
+      'meal' => item.meal,
+      'duration' => item.duration,
+      _ => '',
+    };
+    _keyboardController.text = existing;
+    _keyboardController.selection = TextSelection.fromPosition(
+      TextPosition(offset: existing.length),
+    );
   }
 
   void _setPatientField(String field) {
@@ -1092,7 +1170,9 @@ void _clearPatient() {
   void _deleteMedicine(int index) {
     setState(() {
       medicines.removeAt(index);
-      for (int i = 0; i < medicines.length; i++) medicines[i].sr = '${i + 1}';
+      for (int i = 0; i < medicines.length; i++) {
+        medicines[i].sr = '${i + 1}';
+      }
       _medicineLayerLinks.remove(index);
     });
     _removeMedicineOverlay();
@@ -1110,13 +1190,15 @@ void _clearPatient() {
     _removeMedicineOverlay();
   }
 
-  // ─── Save Prescription ─────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Save / Cancel
+  // ─────────────────────────────────────────────────────────────────────────
+
   Future<void> _savePrescription() async {
     if (medicines.isEmpty) {
       _showSnack('⚠️ No medicines to save', Colors.orange);
       return;
     }
-
     if (patientUhid.isEmpty) {
       _showSnack('⚠️ Please select a patient first', Colors.orange);
       return;
@@ -1126,16 +1208,18 @@ void _clearPatient() {
 
     try {
       final headers = await _headers();
-final medicinesList = medicines.map((m) {
+      final medicinesList = medicines.map((m) {
         return {
           "medicine_name": m.name,
           "frequency": _doseToFrequency(m.dose),
           "meal_timing": m.meal,
-          "duration_days": _durationToDays(m.duration), // "1 week"→7, "5 days"→5, "1 month"→30
+          "duration_days": _durationToDays(m.duration),
+          "duration": "${_durationToDays(m.duration)}Days",
         };
       }).toList();
-final requestBody = {
-        "patient_code": patientCode,  // ← use patientCode instead of _extractPatientCode(patientUhid)
+
+      final requestBody = {
+        "patient_code": patientCode,
         "appointment_code": "",
         "doctor_code": "DOC001",
         "prescription_date": DateTime.now().toIso8601String().substring(0, 10),
@@ -1186,15 +1270,19 @@ final requestBody = {
     _showSnack('🚫 Prescription cancelled', Colors.grey);
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Build
+  // ─────────────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: const Color(0xFFF2F2F2),
       body: SafeArea(
         child: Center(
-          child: Container(
+          child: SizedBox(
             width: 420,
-            height: 820,
             child: Column(
               children: [
                 _buildHeader(),
@@ -1212,6 +1300,10 @@ final requestBody = {
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Header
+  // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Padding(
@@ -1248,6 +1340,10 @@ final requestBody = {
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Patient info
+  // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildPatientInfo() {
     final isNameActive = activeField == 'name';
@@ -1366,6 +1462,10 @@ final requestBody = {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Save button
+  // ─────────────────────────────────────────────────────────────────────────
+
   Widget _buildSaveButton() {
     final bool canSave =
         medicines.isNotEmpty && patientUhid.isNotEmpty && !_isSaving;
@@ -1433,6 +1533,10 @@ final requestBody = {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Rx symbol
+  // ─────────────────────────────────────────────────────────────────────────
+
   Widget _buildRxSymbol() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 0, 10, 2),
@@ -1454,6 +1558,10 @@ final requestBody = {
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Table header
+  // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildTableHeader() {
     return Container(
@@ -1497,10 +1605,14 @@ final requestBody = {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Medicine list
+  // ─────────────────────────────────────────────────────────────────────────
+
   Widget _buildMedicineList() {
     if (medicines.isEmpty) {
       return const SizedBox(
-        height: 290,
+        height: 180,
         child: Center(
           child: Text(
             'No medicines added yet.',
@@ -1633,6 +1745,10 @@ final requestBody = {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Draw area
+  // ─────────────────────────────────────────────────────────────────────────
+
   Widget _buildDrawArea() {
     final isName = activeField == 'name';
     final borderColor = isName
@@ -1706,7 +1822,49 @@ final requestBody = {
             borderRadius: BorderRadius.circular(2),
             child: Stack(
               children: [
+                // Drawing canvas
                 ClipRect(child: Scribble(notifier: _notifier, drawPen: true)),
+
+                // Keyboard input overlay
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: TextField(
+                    controller: _keyboardController,
+                    decoration: InputDecoration(
+                      hintText: _activeFieldHint(),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.9),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.send, size: 18),
+                        onPressed: () {
+                          final val = _keyboardController.text.trim();
+                          if (val.isEmpty) return;
+                          _assignText(val);
+                          _keyboardController.clear();
+                          FocusScope.of(context).unfocus();
+                        },
+                      ),
+                    ),
+                    style: const TextStyle(fontSize: 13),
+                    onSubmitted: (val) {
+                      if (val.trim().isEmpty) return;
+                      _assignText(val.trim());
+                      _keyboardController.clear();
+                    },
+                  ),
+                ),
+
+                // Recognizing / listening overlay
                 if (_isRecognizing || _isListening)
                   Container(
                     color: Colors.white60,
@@ -1749,6 +1907,10 @@ final requestBody = {
       ],
     );
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Label helpers
+  // ─────────────────────────────────────────────────────────────────────────
 
   String _activeFieldHint() {
     switch (activeField) {
@@ -1803,6 +1965,10 @@ final requestBody = {
         return '';
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Reusable cell widgets
+  // ─────────────────────────────────────────────────────────────────────────
 
   Widget _cell(String text, {double? width}) {
     final child = Padding(
