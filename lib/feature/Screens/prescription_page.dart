@@ -100,6 +100,20 @@ class MedicineSuggestion {
   }
 }
 
+// ─── NEW: Symptom & Diagnosis tag models ───────────────────────────────────
+
+class SymptomTag {
+  final int? id;
+  final String name;
+  SymptomTag({this.id, required this.name});
+}
+
+class DiagnosisTag {
+  final int? id;
+  final String name;
+  DiagnosisTag({this.id, required this.name});
+}
+
 // ─── Widget ─────────────────────────────────────────────────────────────────
 
 class PrescriptionPage extends StatefulWidget {
@@ -157,6 +171,42 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   String patientCode = '';
   int patientId = 0;
 
+  // ── Symptoms ─────────────────────────────────────────────────────────────
+  List<SymptomTag> _selectedSymptoms = [];
+  final _symptomLayerLink = LayerLink();
+  OverlayEntry? _symptomOverlayEntry;
+  String _symptomQuery = '';
+  List<SymptomTag> _symptomSuggestions = [];
+  bool _isSearchingSymptom = false;
+  bool _isSavingSymptom = false;
+  Timer? _symptomDebounce;
+
+  static const List<String> _commonSymptoms = [
+    'Fever', 'Cough', 'Cold', 'Headache', 'Fatigue', 'Nausea',
+    'Vomiting', 'Diarrhoea', 'Constipation', 'Chest Pain',
+    'Shortness of Breath', 'Body Ache', 'Sore Throat', 'Dizziness',
+    'Loss of Appetite', 'Abdominal Pain', 'Back Pain', 'Joint Pain',
+    'Skin Rash', 'Itching', 'Swelling', 'Burning Urination',
+  ];
+
+  // ── Diagnosis ────────────────────────────────────────────────────────────
+  List<DiagnosisTag> _selectedDiagnosis = [];
+  final _diagnosisLayerLink = LayerLink();
+  OverlayEntry? _diagnosisOverlayEntry;
+  String _diagnosisQuery = '';
+  List<DiagnosisTag> _diagnosisSuggestions = [];
+  bool _isSearchingDiagnosis = false;
+  bool _isSavingDiagnosis = false;
+  Timer? _diagnosisDebounce;
+
+  static const List<String> _commonDiagnoses = [
+    'Viral Fever', 'URI', 'Hypertension', 'Type 2 Diabetes',
+    'Asthma', 'GERD', 'Bronchitis', 'Pneumonia', 'UTI',
+    'Anaemia', 'Hypothyroidism', 'Migraine', 'Dengue',
+    'Malaria', 'Typhoid', 'COVID-19', 'Sinusitis', 'Arthritis',
+    'Eczema', 'Dermatitis', 'Peptic Ulcer', 'IBS',
+  ];
+
   // ── Medicine table ───────────────────────────────────────────────────────
   List<MedicineItem> medicines = [];
   String activeField = 'medicine';
@@ -165,70 +215,33 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
 
   // ── Common medicines list ─────────────────────────────────────────────────
   static const List<String> _commonMedicines = [
-    "Paracetamol 500mg",
-    "Diclofenac 50mg",
-    "Aceclofenac 100mg",
-    "Aspirin 75mg",
-    "Amoxicillin 500mg",
-    "Azithromycin 500mg",
-    "Cefixime 200mg",
-    "Ciprofloxacin 500mg",
-    "Metronidazole 400mg",
-    "Cetirizine 10mg",
-    "Levocetirizine 5mg",
-    "Montelukast 10mg",
-    "Hydroxyzine 25mg",
-    "Pantoprazole 40mg",
-    "Omeprazole 20mg",
-    "Rabeprazole 20mg",
-    "Antacid Syrup",
-    "Domperidone 10mg",
-    "Metformin 500mg",
-    "Glimepiride 2mg",
-    "Insulin Regular",
-    "Voglibose 0.3mg",
-    "Teneligliptin 20mg",
-    "Amlodipine 5mg",
-    "Telmisartan 40mg",
-    "Losartan 50mg",
-    "Atenolol 50mg",
-    "Ambroxol Syrup",
-    "Calcium Tablet",
-    "Vitamin C Tablet",
-    "Vitamin D3 Sachet",
-    "Iron Tablet",
-    "Multivitamin Capsule",
-    "ORS Powder",
-    "Zinc Tablet",
-    "Soframycin Cream",
+    "Paracetamol 500mg", "Diclofenac 50mg", "Aceclofenac 100mg",
+    "Aspirin 75mg", "Amoxicillin 500mg", "Azithromycin 500mg",
+    "Cefixime 200mg", "Ciprofloxacin 500mg", "Metronidazole 400mg",
+    "Cetirizine 10mg", "Levocetirizine 5mg", "Montelukast 10mg",
+    "Hydroxyzine 25mg", "Pantoprazole 40mg", "Omeprazole 20mg",
+    "Rabeprazole 20mg", "Antacid Syrup", "Domperidone 10mg",
+    "Metformin 500mg", "Glimepiride 2mg", "Insulin Regular",
+    "Voglibose 0.3mg", "Teneligliptin 20mg", "Amlodipine 5mg",
+    "Telmisartan 40mg", "Losartan 50mg", "Atenolol 50mg",
+    "Ambroxol Syrup", "Calcium Tablet", "Vitamin C Tablet",
+    "Vitamin D3 Sachet", "Iron Tablet", "Multivitamin Capsule",
+    "ORS Powder", "Zinc Tablet", "Soframycin Cream",
   ];
 
   // ── Dose aliases ──────────────────────────────────────────────────────────
   static const Map<String, String> _doseAliases = {
-    '1-0-0-0': '1-0-0-0',
-    '0-1-0-0': '0-1-0-0',
-    '0-0-1-0': '0-0-1-0',
-    '0-0-0-1': '0-0-0-1',
-    '1-1-0-0': '1-1-0-0',
-    '1-0-1-0': '1-0-1-0',
-    '1-0-0-1': '1-0-0-1',
-    '0-1-1-0': '0-1-1-0',
-    '0-1-0-1': '0-1-0-1',
-    '0-0-1-1': '0-0-1-1',
-    '1-1-1-0': '1-1-1-0',
-    '1-1-0-1': '1-1-0-1',
-    '1-0-1-1': '1-0-1-1',
-    '0-1-1-1': '0-1-1-1',
-    '1-1-1-1': '1-1-1-1',
+    '1-0-0-0': '1-0-0-0', '0-1-0-0': '0-1-0-0', '0-0-1-0': '0-0-1-0',
+    '0-0-0-1': '0-0-0-1', '1-1-0-0': '1-1-0-0', '1-0-1-0': '1-0-1-0',
+    '1-0-0-1': '1-0-0-1', '0-1-1-0': '0-1-1-0', '0-1-0-1': '0-1-0-1',
+    '0-0-1-1': '0-0-1-1', '1-1-1-0': '1-1-1-0', '1-1-0-1': '1-1-0-1',
+    '1-0-1-1': '1-0-1-1', '0-1-1-1': '0-1-1-1', '1-1-1-1': '1-1-1-1',
   };
 
   static const Map<String, String> _mealAliases = {
-    'before meal': 'Before meal',
-    'before meals': 'Before meal',
-    'empty stomach': 'Before meal',
-    'after meal': 'After meal',
-    'after meals': 'After meal',
-    'with meal': 'With meal',
+    'before meal': 'Before meal', 'before meals': 'Before meal',
+    'empty stomach': 'Before meal', 'after meal': 'After meal',
+    'after meals': 'After meal', 'with meal': 'With meal',
     'with meals': 'With meal',
   };
 
@@ -241,7 +254,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     caseSensitive: false,
   );
 
-  // ── Dropdown options ──────────────────────────────────────────────────────
   static const List<String> _doseOptions = [
     '1-0-0-0', '0-1-0-0', '0-0-1-0', '0-0-0-1',
     '1-1-0-0', '1-0-1-0', '1-0-0-1', '0-1-1-0',
@@ -274,11 +286,15 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   void dispose() {
     _debounce?.cancel();
     _medicineDebounce?.cancel();
+    _symptomDebounce?.cancel();
+    _diagnosisDebounce?.cancel();
     _notifier.removeListener(_onDrawChanged);
     _keyboardController.dispose();
     if (_isModelLoaded) _recognizer.close();
     _removePatientOverlay();
     _removeMedicineOverlay();
+    _removeSymptomOverlay();
+    _removeDiagnosisOverlay();
     super.dispose();
   }
 
@@ -371,25 +387,17 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     if (_isSearching) {
       return const Padding(
         padding: EdgeInsets.all(16),
-        child: Center(
-          child: SizedBox(
-            width: 22, height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
+        child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))),
       );
     }
-    if (_suggestions.isEmpty && _searchQuery.isNotEmpty) {
-      return const SizedBox.shrink();
-    }
+    if (_suggestions.isEmpty && _searchQuery.isNotEmpty) return const SizedBox.shrink();
     return ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 220),
       child: ListView.separated(
         padding: EdgeInsets.zero,
         shrinkWrap: true,
         itemCount: _suggestions.length,
-        separatorBuilder: (_, __) =>
-            const Divider(height: 1, color: Colors.black12),
+        separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.black12),
         itemBuilder: (_, i) => _buildSuggestionTile(_suggestions[i]),
       ),
     );
@@ -404,17 +412,13 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
           children: [
             CircleAvatar(
               radius: 18,
-              backgroundColor: p.gender == 'Female'
-                  ? Colors.pink.shade100
-                  : Colors.blue.shade100,
+              backgroundColor: p.gender == 'Female' ? Colors.pink.shade100 : Colors.blue.shade100,
               child: Text(
                 p.fullName.isNotEmpty ? p.fullName[0].toUpperCase() : '?',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
-                  color: p.gender == 'Female'
-                      ? Colors.pink.shade700
-                      : Colors.blue.shade700,
+                  color: p.gender == 'Female' ? Colors.pink.shade700 : Colors.blue.shade700,
                 ),
               ),
             ),
@@ -423,21 +427,386 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(p.fullName,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  Text(p.fullName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                   Text('${p.uhid}  •  ${p.age} yrs  •  ${p.gender}',
-                      style:
-                          const TextStyle(fontSize: 11, color: Colors.grey)),
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
                 ],
               ),
             ),
-            Text(p.mobile,
-                style:
-                    const TextStyle(fontSize: 11, color: Colors.black45)),
+            Text(p.mobile, style: const TextStyle(fontSize: 11, color: Colors.black45)),
           ],
         ),
       ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Symptom overlay
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _showSymptomOverlay() {
+    _removeSymptomOverlay();
+    _symptomSuggestions = _commonSymptoms.map((n) => SymptomTag(name: n)).toList();
+    final overlay = Overlay.of(context);
+    _symptomOverlayEntry = OverlayEntry(
+      builder: (_) => Positioned(
+        width: 320,
+        child: CompositedTransformFollower(
+          link: _symptomLayerLink,
+          showWhenUnlinked: false,
+          offset: const Offset(0, 40),
+          child: Material(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(6),
+            child: _buildTagOverlayContent(
+              query: _symptomQuery,
+              suggestions: _symptomSuggestions,
+              isSearching: _isSearchingSymptom,
+              isSaving: _isSavingSymptom,
+              onQueryChanged: (val) {
+                _symptomQuery = val;
+                _symptomDebounce?.cancel();
+                _symptomDebounce = Timer(
+                  const Duration(milliseconds: 400),
+                  () => _fetchSymptomSuggestions(val),
+                );
+                _symptomOverlayEntry?.markNeedsBuild();
+              },
+              onSelect: _onSymptomSelected,
+              onCustomAdd: () => _addCustomSymptom(_symptomQuery),
+              hintText: 'Search or type symptom...',
+              accentColor: Colors.orange.shade700,
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(_symptomOverlayEntry!);
+  }
+
+  void _removeSymptomOverlay() {
+    _symptomOverlayEntry?.remove();
+    _symptomOverlayEntry = null;
+  }
+
+  Future<void> _fetchSymptomSuggestions(String query) async {
+    if (query.trim().isEmpty) {
+      _symptomSuggestions = _commonSymptoms.map((n) => SymptomTag(name: n)).toList();
+      _isSearchingSymptom = false;
+      _symptomOverlayEntry?.markNeedsBuild();
+      return;
+    }
+    _isSearchingSymptom = true;
+    _symptomOverlayEntry?.markNeedsBuild();
+    try {
+      final uri = Uri.parse(
+          'https://hms.yourhrms.in/api/master-symptoms/?search=${Uri.encodeComponent(query)}');
+      final response = await http.get(uri, headers: await _headers());
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List items = data is List ? data : (data['results'] ?? []);
+        _symptomSuggestions = items
+            .map((j) => SymptomTag(id: j['id'], name: j['symptom_name'] ?? j['name'] ?? ''))
+            .where((s) => s.name.isNotEmpty)
+            .toList();
+        if (_symptomSuggestions.isEmpty) {
+          _symptomSuggestions = _commonSymptoms
+              .where((n) => n.toLowerCase().contains(query.toLowerCase()))
+              .map((n) => SymptomTag(name: n))
+              .toList();
+        }
+      } else {
+        _symptomSuggestions = _commonSymptoms
+            .where((n) => n.toLowerCase().contains(query.toLowerCase()))
+            .map((n) => SymptomTag(name: n))
+            .toList();
+      }
+    } catch (_) {
+      _symptomSuggestions = _commonSymptoms
+          .where((n) => n.toLowerCase().contains(query.toLowerCase()))
+          .map((n) => SymptomTag(name: n))
+          .toList();
+    }
+    _isSearchingSymptom = false;
+    _symptomOverlayEntry?.markNeedsBuild();
+  }
+
+  Future<void> _onSymptomSelected(String name) async {
+    if (_selectedSymptoms.any((s) => s.name.toLowerCase() == name.toLowerCase())) {
+      _removeSymptomOverlay();
+      return;
+    }
+    setState(() => _isSavingSymptom = true);
+    _symptomOverlayEntry?.markNeedsBuild();
+    try {
+      final response = await http.post(
+        Uri.parse('https://hms.yourhrms.in/api/master-symptoms/create/'),
+        headers: await _headers(),
+        body: jsonEncode({'symptom_name': name}),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        final tag = SymptomTag(id: data['id'], name: data['symptom_name'] ?? name);
+        setState(() => _selectedSymptoms.add(tag));
+      } else {
+        // Still add locally even if API returns conflict/existing
+        setState(() => _selectedSymptoms.add(SymptomTag(name: name)));
+      }
+    } catch (_) {
+      setState(() => _selectedSymptoms.add(SymptomTag(name: name)));
+    }
+    setState(() => _isSavingSymptom = false);
+    _symptomQuery = '';
+    _removeSymptomOverlay();
+  }
+
+  Future<void> _addCustomSymptom(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    await _onSymptomSelected(trimmed);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Diagnosis overlay
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _showDiagnosisOverlay() {
+    _removeDiagnosisOverlay();
+    _diagnosisSuggestions = _commonDiagnoses.map((n) => DiagnosisTag(name: n)).toList();
+    final overlay = Overlay.of(context);
+    _diagnosisOverlayEntry = OverlayEntry(
+      builder: (_) => Positioned(
+        width: 320,
+        child: CompositedTransformFollower(
+          link: _diagnosisLayerLink,
+          showWhenUnlinked: false,
+          offset: const Offset(0, 40),
+          child: Material(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(6),
+            child: _buildTagOverlayContent(
+              query: _diagnosisQuery,
+              suggestions: _diagnosisSuggestions,
+              isSearching: _isSearchingDiagnosis,
+              isSaving: _isSavingDiagnosis,
+              onQueryChanged: (val) {
+                _diagnosisQuery = val;
+                _diagnosisDebounce?.cancel();
+                _diagnosisDebounce = Timer(
+                  const Duration(milliseconds: 400),
+                  () => _fetchDiagnosisSuggestions(val),
+                );
+                _diagnosisOverlayEntry?.markNeedsBuild();
+              },
+              onSelect: _onDiagnosisSelected,
+              onCustomAdd: () => _addCustomDiagnosis(_diagnosisQuery),
+              hintText: 'Search or type diagnosis...',
+              accentColor: Colors.purple.shade600,
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(_diagnosisOverlayEntry!);
+  }
+
+  void _removeDiagnosisOverlay() {
+    _diagnosisOverlayEntry?.remove();
+    _diagnosisOverlayEntry = null;
+  }
+
+  Future<void> _fetchDiagnosisSuggestions(String query) async {
+    if (query.trim().isEmpty) {
+      _diagnosisSuggestions = _commonDiagnoses.map((n) => DiagnosisTag(name: n)).toList();
+      _isSearchingDiagnosis = false;
+      _diagnosisOverlayEntry?.markNeedsBuild();
+      return;
+    }
+    _isSearchingDiagnosis = true;
+    _diagnosisOverlayEntry?.markNeedsBuild();
+    try {
+      final uri = Uri.parse(
+          'https://hms.yourhrms.in/api/master-diagnosis/?search=${Uri.encodeComponent(query)}');
+      final response = await http.get(uri, headers: await _headers());
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List items = data is List ? data : (data['results'] ?? []);
+        _diagnosisSuggestions = items
+            .map((j) => DiagnosisTag(id: j['id'], name: j['diagnosis_name'] ?? j['name'] ?? ''))
+            .where((d) => d.name.isNotEmpty)
+            .toList();
+        if (_diagnosisSuggestions.isEmpty) {
+          _diagnosisSuggestions = _commonDiagnoses
+              .where((n) => n.toLowerCase().contains(query.toLowerCase()))
+              .map((n) => DiagnosisTag(name: n))
+              .toList();
+        }
+      } else {
+        _diagnosisSuggestions = _commonDiagnoses
+            .where((n) => n.toLowerCase().contains(query.toLowerCase()))
+            .map((n) => DiagnosisTag(name: n))
+            .toList();
+      }
+    } catch (_) {
+      _diagnosisSuggestions = _commonDiagnoses
+          .where((n) => n.toLowerCase().contains(query.toLowerCase()))
+          .map((n) => DiagnosisTag(name: n))
+          .toList();
+    }
+    _isSearchingDiagnosis = false;
+    _diagnosisOverlayEntry?.markNeedsBuild();
+  }
+
+  Future<void> _onDiagnosisSelected(String name) async {
+    if (_selectedDiagnosis.any((d) => d.name.toLowerCase() == name.toLowerCase())) {
+      _removeDiagnosisOverlay();
+      return;
+    }
+    setState(() => _isSavingDiagnosis = true);
+    _diagnosisOverlayEntry?.markNeedsBuild();
+    try {
+      final response = await http.post(
+        Uri.parse('https://hms.yourhrms.in/api/master-diagnosis/create/'),
+        headers: await _headers(),
+        body: jsonEncode({'diagnosis_name': name}),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        final tag = DiagnosisTag(id: data['id'], name: data['diagnosis_name'] ?? name);
+        setState(() => _selectedDiagnosis.add(tag));
+      } else {
+        setState(() => _selectedDiagnosis.add(DiagnosisTag(name: name)));
+      }
+    } catch (_) {
+      setState(() => _selectedDiagnosis.add(DiagnosisTag(name: name)));
+    }
+    setState(() => _isSavingDiagnosis = false);
+    _diagnosisQuery = '';
+    _removeDiagnosisOverlay();
+  }
+
+  Future<void> _addCustomDiagnosis(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    await _onDiagnosisSelected(trimmed);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Shared tag overlay content builder
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Widget _buildTagOverlayContent({
+    required String query,
+    required List suggestions,
+    required bool isSearching,
+    required bool isSaving,
+    required void Function(String) onQueryChanged,
+    required Future<void> Function(String) onSelect,
+    required Future<void> Function() onCustomAdd,
+    required String hintText,
+    required Color accentColor,
+  }) {
+    return StatefulBuilder(
+      builder: (ctx, setOverlayState) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: TextField(
+                autofocus: true,
+                controller: TextEditingController(text: query)
+                  ..selection = TextSelection.collapsed(offset: query.length),
+                decoration: InputDecoration(
+                  hintText: hintText,
+                  hintStyle: const TextStyle(fontSize: 12, color: Colors.black38),
+                  prefixIcon: const Icon(Icons.search, size: 16, color: Colors.grey),
+                  suffixIcon: query.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.close, size: 14, color: Colors.black45),
+                          onPressed: () {
+                            onQueryChanged('');
+                            setOverlayState(() {});
+                          },
+                        )
+                      : null,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      borderSide: const BorderSide(color: Colors.black26, width: 1)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(6),
+                      borderSide: BorderSide(color: accentColor, width: 1.5)),
+                ),
+                style: const TextStyle(fontSize: 13),
+                onChanged: (val) {
+                  onQueryChanged(val);
+                  setOverlayState(() {});
+                },
+              ),
+            ),
+            if (query.isNotEmpty) ...[
+              InkWell(
+                onTap: onCustomAdd,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.add_circle_outline, size: 16, color: accentColor),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Add "$query"',
+                          style: TextStyle(fontSize: 12, color: accentColor, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      if (isSaving) const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                    ],
+                  ),
+                ),
+              ),
+              const Divider(height: 1, color: Colors.black12),
+            ],
+            if (isSearching)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+              )
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 180),
+                child: suggestions.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text('No results found', style: TextStyle(fontSize: 12, color: Colors.black38)),
+                      )
+                    : ListView.separated(
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        itemCount: suggestions.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.black12),
+                        itemBuilder: (_, i) {
+                          final name = (suggestions[i] as dynamic).name as String;
+                          return InkWell(
+                            onTap: () => onSelect(name),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.label_outline, size: 14, color: accentColor),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: Text(name, style: const TextStyle(fontSize: 13))),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -473,9 +842,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     );
     overlay.insert(_medicineOverlayEntry!);
 
-    _medicineSuggestions = _commonMedicines
-        .map((n) => MedicineSuggestion(id: 0, name: n))
-        .toList();
+    _medicineSuggestions = _commonMedicines.map((n) => MedicineSuggestion(id: 0, name: n)).toList();
     _medicineOverlayEntry?.markNeedsBuild();
   }
 
@@ -496,39 +863,31 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
               child: TextField(
                 autofocus: true,
                 controller: TextEditingController(text: _medicineSearchQuery)
-                  ..selection = TextSelection.collapsed(
-                      offset: _medicineSearchQuery.length),
+                  ..selection = TextSelection.collapsed(offset: _medicineSearchQuery.length),
                 decoration: InputDecoration(
                   hintText: 'Search medicine...',
-                  hintStyle:
-                      const TextStyle(fontSize: 12, color: Colors.black38),
-                  prefixIcon:
-                      const Icon(Icons.search, size: 16, color: Colors.grey),
+                  hintStyle: const TextStyle(fontSize: 12, color: Colors.black38),
+                  prefixIcon: const Icon(Icons.search, size: 16, color: Colors.grey),
                   suffixIcon: _medicineSearchQuery.isNotEmpty
                       ? IconButton(
-                          icon: const Icon(Icons.close,
-                              size: 14, color: Colors.black45),
+                          icon: const Icon(Icons.close, size: 14, color: Colors.black45),
                           onPressed: () {
                             setOverlayState(() => _medicineSearchQuery = '');
                             _medicineSuggestions = _commonMedicines
-                                .map((n) =>
-                                    MedicineSuggestion(id: 0, name: n))
+                                .map((n) => MedicineSuggestion(id: 0, name: n))
                                 .toList();
                             _medicineOverlayEntry?.markNeedsBuild();
                           },
                         )
                       : null,
                   isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 8),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide:
-                          const BorderSide(color: Colors.black26, width: 1)),
+                      borderSide: const BorderSide(color: Colors.black26, width: 1)),
                   focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide:
-                          const BorderSide(color: Colors.teal, width: 1.5)),
+                      borderSide: const BorderSide(color: Colors.teal, width: 1.5)),
                 ),
                 style: const TextStyle(fontSize: 13),
                 onChanged: (val) {
@@ -544,12 +903,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
             if (_isSearchingMedicine)
               const Padding(
                 padding: EdgeInsets.all(12),
-                child: Center(
-                    child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child:
-                            CircularProgressIndicator(strokeWidth: 2))),
+                child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
               )
             else
               ConstrainedBox(
@@ -557,36 +911,27 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                 child: _medicineSuggestions.isEmpty
                     ? const Padding(
                         padding: EdgeInsets.all(12),
-                        child: Text('No medicines found',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.black38)),
+                        child: Text('No medicines found', style: TextStyle(fontSize: 12, color: Colors.black38)),
                       )
                     : ListView.separated(
                         padding: EdgeInsets.zero,
                         shrinkWrap: true,
                         itemCount: _medicineSuggestions.length,
-                        separatorBuilder: (_, __) => const Divider(
-                            height: 1, color: Colors.black12),
+                        separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.black12),
                         itemBuilder: (_, i) {
                           final med = _medicineSuggestions[i];
                           return InkWell(
                             onTap: () {
-                              setState(() =>
-                                  medicines[rowIndex].name = med.name);
+                              setState(() => medicines[rowIndex].name = med.name);
                               _removeMedicineOverlay();
                             },
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 10),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.medication_outlined,
-                                      size: 16, color: Colors.teal),
+                                  const Icon(Icons.medication_outlined, size: 16, color: Colors.teal),
                                   const SizedBox(width: 8),
-                                  Expanded(
-                                      child: Text(med.name,
-                                          style: const TextStyle(
-                                              fontSize: 13))),
+                                  Expanded(child: Text(med.name, style: const TextStyle(fontSize: 13))),
                                 ],
                               ),
                             ),
@@ -603,9 +948,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   Future<void> _fetchMedicineSuggestions(String query) async {
     if (query.trim().isEmpty) {
       setState(() {
-        _medicineSuggestions = _commonMedicines
-            .map((n) => MedicineSuggestion(id: 0, name: n))
-            .toList();
+        _medicineSuggestions = _commonMedicines.map((n) => MedicineSuggestion(id: 0, name: n)).toList();
         _isSearchingMedicine = false;
       });
       _medicineOverlayEntry?.markNeedsBuild();
@@ -620,8 +963,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final List items = data is List ? data : (data['results'] ?? []);
-        _medicineSuggestions =
-            items.map((j) => MedicineSuggestion.fromJson(j)).toList();
+        _medicineSuggestions = items.map((j) => MedicineSuggestion.fromJson(j)).toList();
         if (_medicineSuggestions.isEmpty) {
           _medicineSuggestions = _commonMedicines
               .where((n) => n.toLowerCase().contains(query.toLowerCase()))
@@ -655,9 +997,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
         _showSnack('🎤 Voice error: ${error.errorMsg}', Colors.red);
       },
       onStatus: (status) {
-        if (status == 'done' || status == 'notListening') {
-          setState(() => _isListening = false);
-        }
+        if (status == 'done' || status == 'notListening') setState(() => _isListening = false);
       },
     );
     if (available) {
@@ -773,8 +1113,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   // Text helpers
   // ─────────────────────────────────────────────────────────────────────────
 
-  String _clean(String s) =>
-      s.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '').trim();
+  String _clean(String s) => s.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '').trim();
 
   String? _extractDose(String text) {
     for (final p in _dosePatterns) {
@@ -817,8 +1156,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     return num;
   }
 
-  ({String name, String dose, String meal, String duration})
-      _splitMedicineDose(String raw) {
+  ({String name, String dose, String meal, String duration}) _splitMedicineDose(String raw) {
     String remaining = raw;
     String dose = '';
     String meal = '';
@@ -828,8 +1166,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       final m = p.firstMatch(remaining);
       if (m != null) {
         dose = _extractDose(m.group(0)!) ?? '';
-        remaining =
-            remaining.substring(0, m.start) + remaining.substring(m.end);
+        remaining = remaining.substring(0, m.start) + remaining.substring(m.end);
         break;
       }
     }
@@ -839,8 +1176,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       if (lower.contains(entry.key)) {
         meal = entry.value;
         final idx = lower.indexOf(entry.key);
-        remaining = remaining.substring(0, idx) +
-            remaining.substring(idx + entry.key.length);
+        remaining = remaining.substring(0, idx) + remaining.substring(idx + entry.key.length);
         break;
       }
     }
@@ -848,16 +1184,10 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     final durMatch = _durationPattern.firstMatch(remaining);
     if (durMatch != null) {
       duration = durMatch.group(0)!.trim();
-      remaining = remaining.substring(0, durMatch.start) +
-          remaining.substring(durMatch.end);
+      remaining = remaining.substring(0, durMatch.start) + remaining.substring(durMatch.end);
     }
 
-    return (
-      name: _clean(remaining),
-      dose: dose,
-      meal: meal,
-      duration: duration,
-    );
+    return (name: _clean(remaining), dose: dose, meal: meal, duration: duration);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -865,6 +1195,14 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   // ─────────────────────────────────────────────────────────────────────────
 
   void _assignText(String text) {
+    if (activeField == 'symptom') {
+      _onSymptomSelected(text.trim());
+      return;
+    }
+    if (activeField == 'diagnosis') {
+      _onDiagnosisSelected(text.trim());
+      return;
+    }
     if (activeField != 'medicine') {
       switch (activeField) {
         case 'name':
@@ -874,8 +1212,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
           _showSnack('🔍 Searching: $q', Colors.teal);
           break;
         case 'age':
-          setState(
-              () => patientAge = text.replaceAll(RegExp(r'[^0-9]'), ''));
+          setState(() => patientAge = text.replaceAll(RegExp(r'[^0-9]'), ''));
           break;
         case 'gender':
           setState(() => patientGender = _normalizeGender(text));
@@ -920,24 +1257,19 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   void _addMedicine(String text) {
     if (selectedColumn == 'dose') {
       final idx = medicines.lastIndexWhere((m) => m.dose.isEmpty);
-      if (idx != -1) {
-        setState(() => medicines[idx].dose = _extractDose(text) ?? text);
-      }
+      if (idx != -1) setState(() => medicines[idx].dose = _extractDose(text) ?? text);
       return;
     }
     if (selectedColumn == 'meal') {
       final idx = medicines.lastIndexWhere((m) => m.meal.isEmpty);
-      if (idx != -1) {
-        setState(() => medicines[idx].meal = _normalizeMeal(text));
-      }
+      if (idx != -1) setState(() => medicines[idx].meal = _normalizeMeal(text));
       return;
     }
     if (selectedColumn == 'duration') {
       final idx = medicines.lastIndexWhere((m) => m.duration.isEmpty);
       if (idx != -1) {
         final m = _durationPattern.firstMatch(text);
-        setState(() => medicines[idx].duration =
-            m != null ? m.group(0)!.trim() : text.trim());
+        setState(() => medicines[idx].duration = m != null ? m.group(0)!.trim() : text.trim());
       }
       return;
     }
@@ -964,11 +1296,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
 
   void _showSnack(String msg, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        duration: const Duration(seconds: 1),
-        backgroundColor: color,
-      ),
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 1), backgroundColor: color),
     );
   }
 
@@ -1068,14 +1396,42 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       editingRowIndex = null;
     });
     _removeMedicineOverlay();
+    _removeSymptomOverlay();
+    _removeDiagnosisOverlay();
+  }
+
+  void _activateSymptomField() {
+    setState(() {
+      activeField = 'symptom';
+      editingRowIndex = null;
+      _showSuggestions = false;
+    });
+    _removeMedicineOverlay();
+    _removePatientOverlay();
+    _removeDiagnosisOverlay();
+    _symptomQuery = '';
+    _showSymptomOverlay();
+    _keyboardController.clear();
+  }
+
+  void _activateDiagnosisField() {
+    setState(() {
+      activeField = 'diagnosis';
+      editingRowIndex = null;
+      _showSuggestions = false;
+    });
+    _removeMedicineOverlay();
+    _removePatientOverlay();
+    _removeSymptomOverlay();
+    _diagnosisQuery = '';
+    _showDiagnosisOverlay();
+    _keyboardController.clear();
   }
 
   void _deleteMedicine(int index) {
     setState(() {
       medicines.removeAt(index);
-      for (int i = 0; i < medicines.length; i++) {
-        medicines[i].sr = '${i + 1}';
-      }
+      for (int i = 0; i < medicines.length; i++) medicines[i].sr = '${i + 1}';
       _medicineLayerLinks.remove(index);
     });
     _removeMedicineOverlay();
@@ -1085,12 +1441,16 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
     _clearPatient();
     setState(() {
       medicines.clear();
+      _selectedSymptoms.clear();
+      _selectedDiagnosis.clear();
       activeField = 'medicine';
       selectedColumn = 'name';
       editingRowIndex = null;
       _medicineLayerLinks.clear();
     });
     _removeMedicineOverlay();
+    _removeSymptomOverlay();
+    _removeDiagnosisOverlay();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1121,16 +1481,18 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
         "patient_code": patientCode,
         "appointment_code": "",
         "doctor_code": "DOC001",
-        "prescription_date":
-            DateTime.now().toIso8601String().substring(0, 10),
+        "prescription_date": DateTime.now().toIso8601String().substring(0, 10),
         "medicines": medicinesList,
+        if (_selectedSymptoms.isNotEmpty)
+          "symptoms": _selectedSymptoms.map((s) => s.name).toList(),
+        if (_selectedDiagnosis.isNotEmpty)
+          "diagnosis": _selectedDiagnosis.map((d) => d.name).toList(),
       };
 
-      final body = jsonEncode(requestBody);
       final response = await http.post(
         Uri.parse('https://hms.yourhrms.in/api/prescriptions/create/'),
         headers: headers,
-        body: body,
+        body: jsonEncode(requestBody),
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -1142,10 +1504,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
         String errorMessage = 'Save failed';
         try {
           final errorData = jsonDecode(response.body);
-          errorMessage = errorData['detail'] ??
-              errorData['message'] ??
-              errorData['error'] ??
-              'Save failed (${response.statusCode})';
+          errorMessage = errorData['detail'] ?? errorData['message'] ?? errorData['error'] ?? 'Save failed (${response.statusCode})';
         } catch (_) {
           errorMessage = 'Save failed (${response.statusCode})';
         }
@@ -1164,21 +1523,14 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // BUILD
-  // Structure:
-  //   Scaffold
-  //   ├── body (SafeArea, scrollable) ← Doctor header, patient info, medicine table
-  //   └── bottomNavigationBar (fixed) ← ℞ + Save/Cancel row + draw pad
+  // Build
   // ─────────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Keep false so the fixed bottom panel never gets squashed by keyboard
       resizeToAvoidBottomInset: false,
       backgroundColor: const Color(0xFFF2F2F2),
-
-      // ── FIXED BOTTOM PANEL ─────────────────────────────────────────────
       bottomNavigationBar: SafeArea(
         top: false,
         child: Container(
@@ -1187,29 +1539,16 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Divider(height: 1, thickness: 1, color: Colors.black12),
-              // ℞  Save  Cancel
               Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 child: Row(
                   children: [
-                    const Text(
-                      '℞',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                        height: 1.1,
-                      ),
-                    ),
+                    const Text('℞', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black, height: 1.1)),
                     const Spacer(),
                     SizedBox(
-                      width: 100,
-                      height: 40,
+                      width: 100, height: 40,
                       child: ElevatedButton(
-                        onPressed: (medicines.isNotEmpty &&
-                                patientUhid.isNotEmpty &&
-                                !_isSaving)
+                        onPressed: (medicines.isNotEmpty && patientUhid.isNotEmpty && !_isSaving)
                             ? _savePrescription
                             : null,
                         style: ElevatedButton.styleFrom(
@@ -1218,60 +1557,42 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                           disabledBackgroundColor: Colors.grey.shade300,
                           disabledForegroundColor: Colors.grey.shade500,
                           elevation: 2,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                         ),
                         child: _isSaving
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white))
-                            : const Text('Save',
-                                style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600)),
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Text('Save', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                       ),
                     ),
                     const SizedBox(width: 8),
                     SizedBox(
-                      width: 100,
-                      height: 40,
+                      width: 100, height: 40,
                       child: ElevatedButton(
                         onPressed: _cancelPrescription,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red,
                           foregroundColor: Colors.white,
                           elevation: 2,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(6)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                         ),
-                        child: const Text('Cancel',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600)),
+                        child: const Text('Cancel', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                       ),
                     ),
                   ],
                 ),
               ),
-              // Handwriting pad
               _buildDrawArea(),
             ],
           ),
         ),
       ),
-
-      // ── SCROLLABLE BODY ─────────────────────────────────────────────────
       body: SafeArea(
-        bottom: false, // bottom handled by bottomNavigationBar
+        bottom: false,
         child: LayoutBuilder(
           builder: (context, constraints) {
             return SingleChildScrollView(
               child: ConstrainedBox(
-                // Fill full width in portrait & landscape — no 420px cap
-                constraints:
-                    BoxConstraints(minWidth: constraints.maxWidth),
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: Column(
@@ -1280,7 +1601,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                       _buildHeader(),
                       _buildPatientInfo(),
                       _buildTableHeader(),
-                      // Plain Column — no Expanded/ListView inside ScrollView
                       _buildMedicineList(),
                       const SizedBox(height: 8),
                     ],
@@ -1305,19 +1625,12 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
         children: [
           Expanded(
             child: _loadingDoctor
-                ? const SizedBox(
-                    height: 40,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
+                ? const SizedBox(height: 40, child: Align(alignment: Alignment.centerLeft, child: CircularProgressIndicator(strokeWidth: 2)))
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(doctorData?.fullName ?? 'Doctor',
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       Text(doctorData?.qualifications ?? '',
                           style: const TextStyle(fontSize: 12)),
                     ],
@@ -1329,7 +1642,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Patient info
+  // Patient info  (now includes Symptoms & Diagnosis below DOB)
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildPatientInfo() {
@@ -1339,18 +1652,15 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Name search ──────────────────────────────────────────────────
           CompositedTransformTarget(
             link: _patientLayerLink,
             child: GestureDetector(
               onTap: _activateNameField,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                 decoration: BoxDecoration(
-                  border: Border.all(
-                    color: isNameActive ? Colors.teal : Colors.black38,
-                    width: isNameActive ? 2.0 : 1.0,
-                  ),
+                  border: Border.all(color: isNameActive ? Colors.teal : Colors.black38, width: isNameActive ? 2.0 : 1.0),
                   borderRadius: BorderRadius.circular(6),
                   color: Colors.white,
                 ),
@@ -1358,52 +1668,23 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                   children: [
                     Expanded(
                       child: Text(
-                        _searchQuery.isNotEmpty
-                            ? _searchQuery
-                            : patientName.isNotEmpty
-                                ? patientName
-                                : 'Patient Name / UHID / Mobile',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: (_searchQuery.isEmpty &&
-                                  patientName.isEmpty)
-                              ? Colors.black38
-                              : Colors.black87,
-                        ),
+                        _searchQuery.isNotEmpty ? _searchQuery : patientName.isNotEmpty ? patientName : 'Patient Name / UHID / Mobile',
+                        style: TextStyle(fontSize: 14, color: (_searchQuery.isEmpty && patientName.isEmpty) ? Colors.black38 : Colors.black87),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     if (patientUhid.isNotEmpty) ...[
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(patientUhid,
-                            style: const TextStyle(
-                                fontSize: 10, color: Colors.blue)),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
+                        child: Text(patientUhid, style: const TextStyle(fontSize: 10, color: Colors.blue)),
                       ),
                       const SizedBox(width: 4),
-                      GestureDetector(
-                        onTap: _clearPatient,
-                        child: const Icon(Icons.close,
-                            size: 16, color: Colors.black45),
-                      ),
+                      GestureDetector(onTap: _clearPatient, child: const Icon(Icons.close, size: 16, color: Colors.black45)),
                     ] else
                       GestureDetector(
-                        onTap: isNameActive
-                            ? _clearPatient
-                            : _activateNameField,
-                        child: Icon(
-                          isNameActive
-                              ? Icons.close
-                              : Icons.person_search,
-                          size: 20,
-                          color:
-                              isNameActive ? Colors.red : Colors.grey,
-                        ),
+                        onTap: isNameActive ? _clearPatient : _activateNameField,
+                        child: Icon(isNameActive ? Icons.close : Icons.person_search, size: 20, color: isNameActive ? Colors.red : Colors.grey),
                       ),
                   ],
                 ),
@@ -1411,7 +1692,8 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
             ),
           ),
           const SizedBox(height: 8),
-          // Wrap reflows Age/Gender/DOB on narrow screens
+
+          // ── Age / Gender / DOB ───────────────────────────────────────────
           Wrap(
             spacing: 12,
             runSpacing: 4,
@@ -1421,7 +1703,122 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
               _patientField('DOB', date, 'date'),
             ],
           ),
+          const SizedBox(height: 10),
+
+          // ── Symptoms ─────────────────────────────────────────────────────
+          _buildTagSection(
+            label: 'Symptoms',
+            icon: Icons.sick_outlined,
+            accentColor: Colors.orange.shade700,
+            isActive: activeField == 'symptom',
+            tags: _selectedSymptoms.map((s) => s.name).toList(),
+            layerLink: _symptomLayerLink,
+            onActivate: _activateSymptomField,
+            onRemove: (i) => setState(() => _selectedSymptoms.removeAt(i)),
+            isSaving: _isSavingSymptom,
+          ),
+          const SizedBox(height: 8),
+
+          // ── Diagnosis ────────────────────────────────────────────────────
+          _buildTagSection(
+            label: 'Diagnosis',
+            icon: Icons.local_hospital_outlined,
+            accentColor: Colors.purple.shade600,
+            isActive: activeField == 'diagnosis',
+            tags: _selectedDiagnosis.map((d) => d.name).toList(),
+            layerLink: _diagnosisLayerLink,
+            onActivate: _activateDiagnosisField,
+            onRemove: (i) => setState(() => _selectedDiagnosis.removeAt(i)),
+            isSaving: _isSavingDiagnosis,
+          ),
+          const SizedBox(height: 4),
         ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Reusable tag section (Symptoms / Diagnosis)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Widget _buildTagSection({
+    required String label,
+    required IconData icon,
+    required Color accentColor,
+    required bool isActive,
+    required List<String> tags,
+    required LayerLink layerLink,
+    required VoidCallback onActivate,
+    required void Function(int) onRemove,
+    required bool isSaving,
+  }) {
+    return CompositedTransformTarget(
+      link: layerLink,
+      child: GestureDetector(
+        onTap: onActivate,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: isActive ? accentColor : Colors.black26, width: isActive ? 2 : 1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Label row
+              Row(
+                children: [
+                  Icon(icon, size: 13, color: accentColor),
+                  const SizedBox(width: 4),
+                  Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: accentColor)),
+                  const Spacer(),
+                  if (isSaving)
+                    SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: accentColor))
+                  else
+                    Icon(Icons.add, size: 16, color: accentColor),
+                ],
+              ),
+              if (tags.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                // Chip wrap
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: List.generate(tags.length, (i) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: accentColor.withOpacity(0.10),
+                        border: Border.all(color: accentColor.withOpacity(0.35)),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(tags[i], style: TextStyle(fontSize: 11, color: accentColor, fontWeight: FontWeight.w500)),
+                          const SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: () => onRemove(i),
+                            child: Icon(Icons.close, size: 12, color: accentColor),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+              ] else
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Tap to add $label...',
+                    style: TextStyle(fontSize: 12, color: Colors.black38),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1445,6 +1842,12 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   // Table header
   // ─────────────────────────────────────────────────────────────────────────
 
+  static const double _wSr       = 32;
+  static const double _wDose     = 72;
+  static const double _wMeal     = 80;
+  static const double _wDuration = 70;
+  static const double _wDelete   = 36;
+
   Widget _buildTableHeader() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 10),
@@ -1452,64 +1855,43 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       child: Row(
         children: [
           const SizedBox(
-            width: 32,
-            child: Padding(
-                padding: EdgeInsets.all(8),
-                child: Text('Sr',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 12))),
+            width: _wSr,
+            child: Padding(padding: EdgeInsets.all(8), child: Text('Sr', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
           ),
-          _headerCell('Medicine', 'name', flex: 5),
-          _headerCell('Dose', 'dose', flex: 4),
-          _headerCell('Meal', 'meal', flex: 4),
-          _headerCell('Duration', 'duration', flex: 4),
-          const SizedBox(width: 36),
+          Expanded(child: _headerCell('Medicine', 'name')),
+          SizedBox(width: _wDose,     child: _headerCell('Dose',     'dose')),
+          SizedBox(width: _wMeal,     child: _headerCell('Meal',     'meal')),
+          SizedBox(width: _wDuration, child: _headerCell('Duration', 'duration')),
+          const SizedBox(width: _wDelete),
         ],
       ),
     );
   }
 
-  Widget _headerCell(String text, String col, {required int flex}) {
+  Widget _headerCell(String text, String col) {
     final selected = activeField == 'medicine' && selectedColumn == col;
-    return Expanded(
-      flex: flex,
-      child: GestureDetector(
-        onTap: () => _selectColumn(col),
-        child: Container(
-          padding: const EdgeInsets.all(8),
-          color: selected ? Colors.blue.shade200 : null,
-          child: Text(
-            text,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              color: selected ? Colors.blue.shade800 : Colors.black87,
-            ),
-          ),
-        ),
+    return GestureDetector(
+      onTap: () => _selectColumn(col),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        color: selected ? Colors.blue.shade200 : null,
+        child: Text(text, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: selected ? Colors.blue.shade800 : Colors.black87)),
       ),
     );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Medicine list
-  // Returns a plain Column — safe inside SingleChildScrollView.
-  // No Expanded / ListView here.
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildMedicineList() {
     if (medicines.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 24),
-        child: Center(
-          child: Text('No medicines added yet.',
-              style: TextStyle(color: Colors.black38)),
-        ),
+        child: Center(child: Text('No medicines added yet.', style: TextStyle(color: Colors.black38))),
       );
     }
-    return Column(
-      children: List.generate(medicines.length, _buildRow),
-    );
+    return Column(children: List.generate(medicines.length, _buildRow));
   }
 
   Widget _buildRow(int index) {
@@ -1520,52 +1902,31 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
         color: selected ? Colors.blue.shade50 : Colors.white,
-        border:
-            Border.all(color: selected ? Colors.blue : Colors.black12),
+        border: Border.all(color: selected ? Colors.blue : Colors.black12),
         borderRadius: BorderRadius.circular(2),
       ),
-      // IntrinsicHeight makes every cell grow to match the tallest cell
-      // (the wrapped medicine name), so row height is always dynamic.
       child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Sr
             SizedBox(
               width: 32,
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(item.sr,
-                      style: const TextStyle(fontSize: 12)),
-                ),
-              ),
+              child: Align(alignment: Alignment.topCenter, child: Padding(padding: const EdgeInsets.all(8), child: Text(item.sr, style: const TextStyle(fontSize: 12)))),
             ),
-
-            // Medicine name — wraps freely, no truncation
             Expanded(
-              flex: 5,
               child: CompositedTransformTarget(
                 link: _getMedicineLinkForRow(index),
                 child: GestureDetector(
                   onTap: () => _selectCell(index, 'name'),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Text(
                             item.name.isEmpty ? '—' : item.name,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: item.name.isEmpty
-                                  ? Colors.black38
-                                  : Colors.black87,
-                            ),
-                            // Full wrap — no maxLines, no ellipsis
+                            style: TextStyle(fontSize: 12, color: item.name.isEmpty ? Colors.black38 : Colors.black87),
                             softWrap: true,
                             overflow: TextOverflow.visible,
                           ),
@@ -1578,13 +1939,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                               _selectCell(index, 'name');
                             }
                           },
-                          child: Icon(
-                            _activeMedicineRow == index
-                                ? Icons.arrow_drop_up
-                                : Icons.arrow_drop_down,
-                            size: 16,
-                            color: Colors.teal,
-                          ),
+                          child: Icon(_activeMedicineRow == index ? Icons.arrow_drop_up : Icons.arrow_drop_down, size: 16, color: Colors.teal),
                         ),
                       ],
                     ),
@@ -1592,53 +1947,29 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                 ),
               ),
             ),
-
-            // Dose
-            Expanded(
-              flex: 4,
+            SizedBox(
+              width: _wDose,
               child: GestureDetector(
                 onTap: () => _selectCell(index, 'dose'),
-                child: _buildDropdownCell(
-                  item.dose,
-                  _doseOptions,
-                  '—',
-                  (val) => setState(() => medicines[index].dose = val),
-                ),
+                child: _buildDropdownCell(item.dose, _doseOptions, '—', (val) => setState(() => medicines[index].dose = val)),
               ),
             ),
-
-            // Meal
-            Expanded(
-              flex: 4,
+            SizedBox(
+              width: _wMeal,
               child: GestureDetector(
                 onTap: () => _selectCell(index, 'meal'),
-                child: _buildDropdownCell(
-                  item.meal,
-                  _mealOptions,
-                  '—',
-                  (val) => setState(() => medicines[index].meal = val),
-                ),
+                child: _buildDropdownCell(item.meal, _mealOptions, '—', (val) => setState(() => medicines[index].meal = val)),
               ),
             ),
-
-            // Duration
-            Expanded(
-              flex: 4,
+            SizedBox(
+              width: _wDuration,
               child: GestureDetector(
                 onTap: () => _selectCell(index, 'duration'),
-                child: _buildDropdownCell(
-                  item.duration,
-                  _durationOptions,
-                  '—',
-                  (val) =>
-                      setState(() => medicines[index].duration = val),
-                ),
+                child: _buildDropdownCell(item.duration, _durationOptions, '—', (val) => setState(() => medicines[index].duration = val)),
               ),
             ),
-
-            // Delete
             SizedBox(
-              width: 36,
+              width: _wDelete,
               child: Align(
                 alignment: Alignment.topCenter,
                 child: IconButton(
@@ -1656,16 +1987,20 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Draw area  (placed in bottomNavigationBar — never scrolls)
+  // Draw area
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildDrawArea() {
     final isName = activeField == 'name';
     final borderColor = isName
         ? Colors.teal
-        : activeField == 'medicine'
-            ? Colors.blue
-            : Colors.purple;
+        : activeField == 'symptom'
+            ? Colors.orange.shade700
+            : activeField == 'diagnosis'
+                ? Colors.purple.shade600
+                : activeField == 'medicine'
+                    ? Colors.blue
+                    : Colors.purple;
 
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
@@ -1673,7 +2008,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Label row + mic button
         Padding(
           padding: const EdgeInsets.fromLTRB(10, 4, 10, 2),
           child: Row(
@@ -1683,11 +2017,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
               Expanded(
                 child: Text(
                   _activeFieldLabel(),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: borderColor,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: TextStyle(fontSize: 11, color: borderColor, fontWeight: FontWeight.w500),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -1700,34 +2030,18 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                     color: _isListening ? Colors.red : Colors.blue,
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: _isListening
-                        ? [
-                            BoxShadow(
-                              color: Colors.red.withOpacity(0.4),
-                              blurRadius: 8,
-                              spreadRadius: 2,
-                            ),
-                          ]
+                        ? [BoxShadow(color: Colors.red.withOpacity(0.4), blurRadius: 8, spreadRadius: 2)]
                         : [],
                   ),
-                  child: Icon(
-                    _isListening ? Icons.mic : Icons.mic_none,
-                    color: Colors.white,
-                    size: 18,
-                  ),
+                  child: Icon(_isListening ? Icons.mic : Icons.mic_none, color: Colors.white, size: 18),
                 ),
               ),
             ],
           ),
         ),
-
-        // Canvas
         Container(
           height: 180,
-          margin: EdgeInsets.only(
-            left: 10,
-            right: 10,
-            bottom: bottomPadding + 8,
-          ),
+          margin: EdgeInsets.only(left: 10, right: 10, bottom: bottomPadding + 8),
           decoration: BoxDecoration(
             border: Border.all(color: borderColor, width: 2),
             borderRadius: BorderRadius.circular(4),
@@ -1736,14 +2050,9 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
             borderRadius: BorderRadius.circular(2),
             child: Stack(
               children: [
-                ClipRect(
-                    child: Scribble(notifier: _notifier, drawPen: true)),
-
-                // Keyboard input strip at the bottom of the canvas
+                ClipRect(child: Scribble(notifier: _notifier, drawPen: true)),
                 Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
+                  bottom: 0, left: 0, right: 0,
                   child: TextField(
                     controller: _keyboardController,
                     decoration: InputDecoration(
@@ -1751,10 +2060,8 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                       filled: true,
                       fillColor: Colors.white.withOpacity(0.9),
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.send, size: 18),
                         onPressed: () {
@@ -1774,8 +2081,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                     },
                   ),
                 ),
-
-                // Recognizing / listening overlay
                 if (_isRecognizing || _isListening)
                   Container(
                     color: Colors.white60,
@@ -1783,28 +2088,17 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          if (_isRecognizing)
-                            const CircularProgressIndicator(),
+                          if (_isRecognizing) const CircularProgressIndicator(),
                           if (_isListening) ...[
-                            const Icon(Icons.mic,
-                                color: Colors.red, size: 40),
+                            const Icon(Icons.mic, color: Colors.red, size: 40),
                             const SizedBox(height: 8),
                             Text(
-                              _spokenText.isEmpty
-                                  ? 'Listening...'
-                                  : _spokenText,
-                              style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500),
+                              _spokenText.isEmpty ? 'Listening...' : _spokenText,
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 6),
-                            Text(
-                              _activeFieldHint(),
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.grey),
-                              textAlign: TextAlign.center,
-                            ),
+                            Text(_activeFieldHint(), style: const TextStyle(fontSize: 12, color: Colors.grey), textAlign: TextAlign.center),
                           ],
                         ],
                       ),
@@ -1819,60 +2113,49 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Label helpers
+  // Label helpers  (extended for symptom / diagnosis)
   // ─────────────────────────────────────────────────────────────────────────
 
   String _activeFieldHint() {
     switch (activeField) {
-      case 'name':
-        return 'Say patient name, UHID, or mobile number';
-      case 'age':
-        return 'Say the patient\'s age (e.g. "25")';
-      case 'gender':
-        return 'Say "Male" or "Female"';
-      case 'date':
-        return 'Say date of birth (e.g. "12 March 1990")';
+      case 'name':       return 'Say patient name, UHID, or mobile number';
+      case 'age':        return 'Say the patient\'s age (e.g. "25")';
+      case 'gender':     return 'Say "Male" or "Female"';
+      case 'date':       return 'Say date of birth (e.g. "12 March 1990")';
+      case 'symptom':    return 'Say symptom (e.g. "Fever", "Cough")';
+      case 'diagnosis':  return 'Say diagnosis (e.g. "Viral Fever", "UTI")';
       case 'medicine':
         switch (selectedColumn) {
-          case 'dose':
-            return 'Say dose (e.g. "OD", "BD", "1-1-1")';
-          case 'meal':
-            return 'Say "Before meal", "After meal", or "With meal"';
-          case 'duration':
-            return 'Say duration (e.g. "5 days", "2 weeks")';
-          default:
-            return 'Say medicine name';
+          case 'dose':     return 'Say dose (e.g. "OD", "BD", "1-1-1")';
+          case 'meal':     return 'Say "Before meal", "After meal", or "With meal"';
+          case 'duration': return 'Say duration (e.g. "5 days", "2 weeks")';
+          default:         return 'Say medicine name';
         }
-      default:
-        return '';
+      default: return '';
     }
   }
 
   String _activeFieldLabel() {
     switch (activeField) {
       case 'name':
-        return _searchQuery.isEmpty
-            ? '✍️  Write patient name / UHID / mobile'
-            : '✍️  Searching for "$_searchQuery" …';
-      case 'age':
-        return '✍️  Writing → Age';
-      case 'gender':
-        return '✍️  Writing → Gender';
-      case 'date':
-        return '✍️  Writing → DOB';
+        return _searchQuery.isEmpty ? '✍️  Write patient name / UHID / mobile' : '✍️  Searching for "$_searchQuery" …';
+      case 'age':       return '✍️  Writing → Age';
+      case 'gender':    return '✍️  Writing → Gender';
+      case 'date':      return '✍️  Writing → DOB';
+      case 'symptom':   return '✍️  Writing → Symptom';
+      case 'diagnosis': return '✍️  Writing → Diagnosis';
       case 'medicine':
         final col = switch (selectedColumn) {
-          'name' => 'Medicine Name',
-          'dose' => 'Dose',
-          'meal' => 'Meal Timing',
+          'name'     => 'Medicine Name',
+          'dose'     => 'Dose',
+          'meal'     => 'Meal Timing',
           'duration' => 'Duration',
-          _ => selectedColumn,
+          _          => selectedColumn,
         };
         return editingRowIndex != null
             ? '✍️  Editing row ${editingRowIndex! + 1} → $col'
             : '✍️  Writing → $col';
-      default:
-        return '';
+      default: return '';
     }
   }
 
@@ -1880,21 +2163,11 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   // Reusable cell widgets
   // ─────────────────────────────────────────────────────────────────────────
 
-  Widget _buildDropdownCell(
-    String value,
-    List<String> options,
-    String placeholder,
-    void Function(String) onSelected,
-  ) {
+  Widget _buildDropdownCell(String value, List<String> options, String placeholder, void Function(String) onSelected) {
     return PopupMenuButton<String>(
       onSelected: onSelected,
       constraints: const BoxConstraints(maxHeight: 200, minWidth: 140),
-      itemBuilder: (_) => options
-          .map((o) => PopupMenuItem(
-                value: o,
-                child: Text(o, style: const TextStyle(fontSize: 12)),
-              ))
-          .toList(),
+      itemBuilder: (_) => options.map((o) => PopupMenuItem(value: o, child: Text(o, style: const TextStyle(fontSize: 12)))).toList(),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         child: Row(
@@ -1902,17 +2175,12 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
             Expanded(
               child: Text(
                 value.isEmpty ? placeholder : value,
-                style: TextStyle(
-                  fontSize: 12,
-                  color:
-                      value.isEmpty ? Colors.black38 : Colors.black87,
-                ),
+                style: TextStyle(fontSize: 12, color: value.isEmpty ? Colors.black38 : Colors.black87),
                 softWrap: true,
                 overflow: TextOverflow.visible,
               ),
             ),
-            const Icon(Icons.arrow_drop_down,
-                size: 16, color: Colors.black45),
+            const Icon(Icons.arrow_drop_down, size: 16, color: Colors.black45),
           ],
         ),
       ),
