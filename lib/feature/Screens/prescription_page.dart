@@ -9,6 +9,9 @@ import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_re
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:google_mlkit_digital_ink_recognition/google_mlkit_digital_ink_recognition.dart'
     as mlkit;
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 // ─── Models ────────────────────────────────────────────────────────────────
 
@@ -549,7 +552,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
         final tag = SymptomTag(id: data['id'], name: data['symptom_name'] ?? name);
         setState(() => _selectedSymptoms.add(tag));
       } else {
-        // Still add locally even if API returns conflict/existing
         setState(() => _selectedSymptoms.add(SymptomTag(name: name)));
       }
     } catch (_) {
@@ -1454,8 +1456,213 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Save / Cancel
+  // Save / Print / Cancel
   // ─────────────────────────────────────────────────────────────────────────
+
+  // ── PDF info helper widget ────────────────────────────────────────────────
+  pw.Widget _pdfInfoItem(String label, String value) {
+    return pw.RichText(
+      text: pw.TextSpan(children: [
+        pw.TextSpan(
+          text: '$label: ',
+          style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+        ),
+        pw.TextSpan(
+          text: value.isEmpty ? '—' : value,
+          style: const pw.TextStyle(fontSize: 11),
+        ),
+      ]),
+    );
+  }
+
+  // ── Print / PDF generation ────────────────────────────────────────────────
+  Future<void> _printPrescription() async {
+    if (medicines.isEmpty) {
+      _showSnack('⚠️ No medicines to print', Colors.orange);
+      return;
+    }
+
+    final doc = pw.Document();
+
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // ── Header ──────────────────────────────────────────────────
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        doctorData?.fullName ?? 'Doctor',
+                        style: pw.TextStyle(
+                            fontSize: 18, fontWeight: pw.FontWeight.bold),
+                      ),
+                      pw.Text(
+                        doctorData?.qualifications ?? '',
+                        style: const pw.TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  pw.Text(
+                    'Date: ${DateTime.now().toIso8601String().substring(0, 10)}',
+                    style: const pw.TextStyle(fontSize: 11),
+                  ),
+                ],
+              ),
+              pw.Divider(thickness: 1),
+              pw.SizedBox(height: 8),
+
+              // ── Patient info ─────────────────────────────────────────────
+              pw.Container(
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.grey400),
+                  borderRadius:
+                      const pw.BorderRadius.all(pw.Radius.circular(4)),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Row(
+                      children: [
+                        _pdfInfoItem('Patient', patientName),
+                        pw.SizedBox(width: 24),
+                        _pdfInfoItem('UHID', patientUhid),
+                        pw.SizedBox(width: 24),
+                        _pdfInfoItem('Age', patientAge),
+                        pw.SizedBox(width: 24),
+                        _pdfInfoItem('Gender', patientGender),
+                      ],
+                    ),
+                    if (date.isNotEmpty) ...[
+                      pw.SizedBox(height: 4),
+                      _pdfInfoItem('DOB', date),
+                    ],
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 10),
+
+              // ── Symptoms ──────────────────────────────────────────────────
+              if (_selectedSymptoms.isNotEmpty) ...[
+                pw.RichText(
+                  text: pw.TextSpan(children: [
+                    pw.TextSpan(
+                      text: 'Symptoms: ',
+                      style: pw.TextStyle(
+                          fontSize: 12, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.TextSpan(
+                      text: _selectedSymptoms.map((s) => s.name).join(', '),
+                      style: const pw.TextStyle(fontSize: 12),
+                    ),
+                  ]),
+                ),
+                pw.SizedBox(height: 6),
+              ],
+
+              // ── Diagnosis ────────────────────────────────────────────────
+              if (_selectedDiagnosis.isNotEmpty) ...[
+                pw.RichText(
+                  text: pw.TextSpan(children: [
+                    pw.TextSpan(
+                      text: 'Diagnosis: ',
+                      style: pw.TextStyle(
+                          fontSize: 12, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.TextSpan(
+                      text: _selectedDiagnosis.map((d) => d.name).join(', '),
+                      style: const pw.TextStyle(fontSize: 12),
+                    ),
+                  ]),
+                ),
+                pw.SizedBox(height: 10),
+              ],
+
+              // ── Rx heading ───────────────────────────────────────────────
+              pw.Text(
+                'Rx',
+                style: pw.TextStyle(
+                    fontSize: 16, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.SizedBox(height: 6),
+
+              // ── Medicines table ───────────────────────────────────────────
+              pw.Table(
+                border: pw.TableBorder.all(color: PdfColors.grey400),
+                columnWidths: {
+                  0: const pw.FixedColumnWidth(28),
+                  1: const pw.FlexColumnWidth(3),
+                  2: const pw.FixedColumnWidth(64),
+                  3: const pw.FixedColumnWidth(72),
+                  4: const pw.FixedColumnWidth(64),
+                },
+                children: [
+                  // Header row
+                  pw.TableRow(
+                    decoration:
+                        const pw.BoxDecoration(color: PdfColors.blue100),
+                    children: ['Sr', 'Medicine', 'Dose', 'Meal', 'Duration']
+                        .map((h) => pw.Padding(
+                              padding: const pw.EdgeInsets.all(6),
+                              child: pw.Text(h,
+                                  style: pw.TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: pw.FontWeight.bold)),
+                            ))
+                        .toList(),
+                  ),
+                  // Data rows
+                  ...medicines.map(
+                    (m) => pw.TableRow(
+                      children: [m.sr, m.name, m.dose, m.meal, m.duration]
+                          .map((v) => pw.Padding(
+                                padding: const pw.EdgeInsets.all(6),
+                                child: pw.Text(
+                                  v.isEmpty ? '—' : v,
+                                  style: const pw.TextStyle(fontSize: 11),
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ],
+              ),
+
+              pw.Spacer(),
+
+              // ── Footer ────────────────────────────────────────────────────
+              pw.Divider(thickness: 0.5),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Generated by Prescription App',
+                    style: const pw.TextStyle(
+                        fontSize: 9, color: PdfColors.grey600),
+                  ),
+                  pw.Text(
+                    doctorData?.fullName ?? '',
+                    style: pw.TextStyle(
+                        fontSize: 10, fontWeight: pw.FontWeight.bold),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    await Printing.layoutPdf(onLayout: (_) async => doc.save());
+  }
 
   Future<void> _savePrescription() async {
     if (medicines.isEmpty) {
@@ -1545,8 +1752,9 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                   children: [
                     const Text('℞', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black, height: 1.1)),
                     const Spacer(),
+                    // ── Save button ──────────────────────────────────────
                     SizedBox(
-                      width: 100, height: 40,
+                      width: 90, height: 40,
                       child: ElevatedButton(
                         onPressed: (medicines.isNotEmpty && patientUhid.isNotEmpty && !_isSaving)
                             ? _savePrescription
@@ -1565,8 +1773,26 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // ── Print button ─────────────────────────────────────
                     SizedBox(
-                      width: 100, height: 40,
+                      width: 90, height: 40,
+                      child: ElevatedButton(
+                        onPressed: medicines.isNotEmpty ? _printPrescription : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey.shade300,
+                          disabledForegroundColor: Colors.grey.shade500,
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        ),
+                        child: const Text('Print', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // ── Cancel button ────────────────────────────────────
+                    SizedBox(
+                      width: 90, height: 40,
                       child: ElevatedButton(
                         onPressed: _cancelPrescription,
                         style: ElevatedButton.styleFrom(
@@ -1574,8 +1800,9 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                           foregroundColor: Colors.white,
                           elevation: 2,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          padding: EdgeInsets.zero,
                         ),
-                        child: const Text('Cancel', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        child: const Text('Cancel', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.visible, softWrap: false),
                       ),
                     ),
                   ],
@@ -1642,7 +1869,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Patient info  (now includes Symptoms & Diagnosis below DOB)
+  // Patient info
   // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildPatientInfo() {
@@ -1767,7 +1994,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Label row
               Row(
                 children: [
                   Icon(icon, size: 13, color: accentColor),
@@ -1782,7 +2008,6 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
               ),
               if (tags.isNotEmpty) ...[
                 const SizedBox(height: 6),
-                // Chip wrap
                 Wrap(
                   spacing: 6,
                   runSpacing: 4,
@@ -1813,7 +2038,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     'Tap to add $label...',
-                    style: TextStyle(fontSize: 12, color: Colors.black38),
+                    style: const TextStyle(fontSize: 12, color: Colors.black38),
                   ),
                 ),
             ],
@@ -2113,7 +2338,7 @@ class _PrescriptionPageState extends State<PrescriptionPage> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Label helpers  (extended for symptom / diagnosis)
+  // Label helpers
   // ─────────────────────────────────────────────────────────────────────────
 
   String _activeFieldHint() {
